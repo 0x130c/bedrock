@@ -12,7 +12,8 @@ defmodule Bedrock.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      consolidate_protocols: Mix.env() != :dev
+      consolidate_protocols: Mix.env() != :dev,
+      usage_rules: usage_rules()
     ]
   end
 
@@ -41,6 +42,9 @@ defmodule Bedrock.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:usage_rules, "~> 1.0", only: [:dev]},
+      {:ash_ai, "~> 0.7"},
+      {:tidewave, "~> 0.6", only: [:dev]},
       {:ash_authentication_oauth2_server, "~> 0.2"},
       {:bcrypt_elixir, "~> 3.0"},
       {:picosat_elixir, "~> 0.2"},
@@ -112,6 +116,40 @@ defmodule Bedrock.MixProject do
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+    ]
+  end
+
+  defp usage_rules do
+    # Example for those using claude.
+    [
+      file: "CLAUDE.md",
+      usage_rules: [:usage_rules],
+      # rules to include directly in CLAUDE.md
+      # :usage_rules itself provides rules for search_docs, docs, etc.
+      # use a regex to match multiple deps, or atoms/strings for specific ones
+      # usage_rules: [:usage_rules, :ash, ~r/^ash_/],
+      # # If your CLAUDE.md is getting too big, link instead of inlining:
+      # usage_rules: [:ash, {~r/^ash_/, link: :markdown}],
+      # or use skills
+      skills: [
+        location: ".claude/skills",
+        # build skills that combine multiple usage rules
+        build: [
+          "ash-framework": [
+            # The description tells people how to use this skill.
+            description:
+              "Use this skill working with Ash Framework or any of its extensions. Always consult this when making any domain changes, features or fixes.",
+            # Include all Ash dependencies
+            usage_rules: [:ash, ~r/^ash_/]
+          ],
+          "phoenix-framework": [
+            description:
+              "Use this skill working with Phoenix Framework. Consult this when working with the web layer, controllers, views, liveviews etc.",
+            # Include all Phoenix dependencies
+            usage_rules: [:phoenix, ~r/^phoenix_/]
+          ]
+        ]
+      ]
     ]
   end
 end

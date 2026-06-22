@@ -22,6 +22,11 @@ defmodule BedrockWeb.Router do
     plug :set_actor, :user
   end
 
+  pipeline :mcp do
+    plug AshAuthentication.Phoenix.Oauth2Server.BearerPlug,
+      oauth2_server: Bedrock.Oauth2Server
+  end
+
   scope "/" do
     pipe_through :browser
     oauth2_server_consent_routes(oauth2_server: Bedrock.Oauth2Server)
@@ -83,6 +88,14 @@ defmodule BedrockWeb.Router do
       auth_routes_prefix: "/auth",
       overrides: [BedrockWeb.AuthOverrides, Elixir.AshAuthentication.Phoenix.Overrides.DaisyUI]
     )
+  end
+
+  scope "/mcp" do
+    pipe_through :mcp
+
+    forward "/", AshAi.Mcp.Router,
+      tools: [],
+      otp_app: :bedrock
   end
 
   # Other scopes may use custom stacks.

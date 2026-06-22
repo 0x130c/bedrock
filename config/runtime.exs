@@ -47,11 +47,9 @@ if config_env() == :prod do
   # to check this value into version control, so we use an environment
   # variable instead.
   secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
+    Env.parse(Zoi.string(), "SECRET_KEY_BASE",
+      hint: "You can generate one by calling: mix phx.gen.secret"
+    )
 
   host = System.get_env("PHX_HOST") || "example.com"
 
@@ -69,9 +67,12 @@ if config_env() == :prod do
     secret_key_base: secret_key_base
 
   config :bedrock,
-    token_signing_secret:
-      System.get_env("TOKEN_SIGNING_SECRET") ||
-        raise("Missing environment variable `TOKEN_SIGNING_SECRET`!")
+    token_signing_secret: Env.parse(Zoi.string(), "TOKEN_SIGNING_SECRET")
+
+  config :bedrock,
+    oauth2_issuer_url: Env.parse!(Zoi.string(), "OAUTH2_ISSUER_URL"),
+    oauth2_resource_url: Env.parse(Zoi.string(), "OAUTH2_RESOURCE_URL"),
+    oauth2_signing_secret: Env.parse(Zoi.string(), "OAUTH2_SIGNING_SECRET")
 
   # ## SSL Support
   #

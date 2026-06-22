@@ -12,6 +12,6 @@ name = "elixir"
 # language-servers = ["dexter", "expert"]
 language-servers = ["dexter"]
 roots = ["mix.exs", "mix.lock"]
-auto-format = true
+# auto-format = true
 # calc root project dir and cd to it to allow mix read .formatter.exs
-# formatter = { command = "sh", args = ["-c", "d=$(dirname %{buffer_name}) && cd \"${PWD%%/$d}\" && mix format --stdin-filename %{buffer_name} -"] }
+formatter = { command = "sh", args = ["-c", "d=$(dirname %{buffer_name}) && cd \"${PWD%%/$d}\" && mix compile && mix format --stdin-filename %{buffer_name} -"] }

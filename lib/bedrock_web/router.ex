@@ -1,6 +1,8 @@
 defmodule BedrockWeb.Router do
   use BedrockWeb, :router
 
+  import Oban.Web.Router
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -39,6 +41,12 @@ defmodule BedrockWeb.Router do
 
       live_dashboard "/dashboard", metrics: BedrockWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
+    end
+
+    scope "/" do
+      pipe_through :browser
+
+      oban_dashboard("/oban")
     end
   end
 

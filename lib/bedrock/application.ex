@@ -11,6 +11,11 @@ defmodule Bedrock.Application do
       BedrockWeb.Telemetry,
       Bedrock.Repo,
       {DNSCluster, query: Application.get_env(:bedrock, :dns_cluster_query) || :ignore},
+      {Oban,
+       AshOban.config(
+         Application.fetch_env!(:bedrock, :ash_domains),
+         Application.fetch_env!(:bedrock, Oban)
+       )},
       {Phoenix.PubSub, name: Bedrock.PubSub},
       # Start a worker by calling: Bedrock.Worker.start_link(arg)
       # {Bedrock.Worker, arg},

@@ -7,6 +7,7 @@
 # General application configuration
 import Config
 
+config :phoenix, filter_parameters: ["password", "token"]
 config :ash_oban, pro?: false
 
 config :bedrock, Oban,
@@ -35,6 +36,9 @@ config :spark,
     remove_parens?: true,
     "Ash.Resource": [
       section_order: [
+        :authentication,
+        :token,
+        :user_identity,
         :admin,
         :postgres,
         :resource,
@@ -61,7 +65,7 @@ config :spark,
 config :bedrock,
   ecto_repos: [Bedrock.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: []
+  ash_domains: [Bedrock.Accounts]
 
 # Configure the endpoint
 config :bedrock, BedrockWeb.Endpoint,

@@ -1,6 +1,7 @@
 defmodule BedrockWeb.Router do
   use BedrockWeb, :router
 
+  use AshAuthentication.Phoenix.Router
   import Oban.Web.Router
 
   pipeline :browser do
@@ -10,16 +11,67 @@ defmodule BedrockWeb.Router do
     plug :put_root_layout, html: {BedrockWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :load_from_session
+    plug :set_actor, :user
   end
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug :load_from_bearer
+    plug :set_actor, :user
+  end
+
+  scope "/", BedrockWeb do
+    pipe_through :browser
+
+    ash_authentication_live_session :authenticated_routes do
+      # in each liveview, add one of the following at the top of the module:
+      #
+      # If an authenticated user must be present:
+      # on_mount {BedrockWeb.LiveUserAuth, :live_user_required}
+      #
+      # If an authenticated user *may* be present:
+      # on_mount {BedrockWeb.LiveUserAuth, :live_user_optional}
+      #
+      # If an authenticated user must *not* be present:
+      # on_mount {BedrockWeb.LiveUserAuth, :live_no_user}
+    end
   end
 
   scope "/", BedrockWeb do
     pipe_through :browser
 
     get "/", PageController, :home
+    auth_routes AuthController, Bedrock.Accounts.User, path: "/auth"
+    sign_out_route AuthController
+
+    # Remove these if you'd like to use your own authentication views
+    sign_in_route register_path: "/register",
+                  reset_path: "/reset",
+                  auth_routes_prefix: "/auth",
+                  on_mount: [{BedrockWeb.LiveUserAuth, :live_no_user}],
+                  overrides: [
+                    BedrockWeb.AuthOverrides,
+                    Elixir.AshAuthentication.Phoenix.Overrides.DaisyUI
+                  ]
+
+    # Remove this if you do not want to use the reset password feature
+    reset_route auth_routes_prefix: "/auth",
+                overrides: [
+                  BedrockWeb.AuthOverrides,
+                  Elixir.AshAuthentication.Phoenix.Overrides.DaisyUI
+                ]
+
+    # Remove this if you do not use the confirmation strategy
+    confirm_route Bedrock.Accounts.User, :confirm_new_user,
+      auth_routes_prefix: "/auth",
+      overrides: [BedrockWeb.AuthOverrides, Elixir.AshAuthentication.Phoenix.Overrides.DaisyUI]
+
+    # Remove this if you do not use the magic link strategy.
+    magic_sign_in_route(Bedrock.Accounts.User, :magic_link,
+      auth_routes_prefix: "/auth",
+      overrides: [BedrockWeb.AuthOverrides, Elixir.AshAuthentication.Phoenix.Overrides.DaisyUI]
+    )
   end
 
   # Other scopes may use custom stacks.

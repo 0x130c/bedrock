@@ -1,4 +1,6 @@
 import Config
+config :bedrock, token_signing_secret: "ccwHwt+2X47acfbiXNqyEzpTSROmZXKO"
+config :bcrypt_elixir, log_rounds: 1
 config :bedrock, Oban, testing: :manual
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 

@@ -41,6 +41,10 @@ defmodule Bedrock.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:bcrypt_elixir, "~> 3.0"},
+      {:picosat_elixir, "~> 0.2"},
+      {:ash_authentication_phoenix, "~> 3.0-rc", override: true},
+      {:ash_authentication, "~> 5.0-rc", override: true},
       {:ash_cloak, "~> 0.3"},
       {:cloak, "~> 1.0"},
       {:ash_paper_trail, "~> 0.6"},

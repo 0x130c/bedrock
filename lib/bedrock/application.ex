@@ -20,7 +20,8 @@ defmodule Bedrock.Application do
       # Start a worker by calling: Bedrock.Worker.start_link(arg)
       # {Bedrock.Worker, arg},
       # Start to serve requests, typically the last entry
-      BedrockWeb.Endpoint
+      BedrockWeb.Endpoint,
+      {AshAuthentication.Supervisor, [otp_app: :bedrock]}
     ]
 
     # See https://elixir.hexdocs.pm/Supervisor.html

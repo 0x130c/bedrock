@@ -41,6 +41,10 @@ defmodule Bedrock.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:ash_cloak, "~> 0.3"},
+      {:cloak, "~> 1.0"},
+      {:ash_paper_trail, "~> 0.6"},
+      {:ash_archival, "~> 2.0"},
       {:ash_events, "~> 0.7"},
       {:ash_state_machine, "~> 0.2"},
       {:oban, "~> 2.0"},

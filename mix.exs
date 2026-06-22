@@ -41,6 +41,8 @@ defmodule Bedrock.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:ash_events, "~> 0.7"},
+      {:ash_state_machine, "~> 0.2"},
       {:oban, "~> 2.0"},
       {:oban_web, "~> 2.0"},
       {:ash_oban, "~> 0.8"},

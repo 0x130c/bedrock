@@ -1,5 +1,7 @@
 [
   import_deps: [
+    :ash_events,
+    :ash_state_machine,
     :ash_oban,
     :oban,
     :ash_admin,

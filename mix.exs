@@ -41,6 +41,7 @@ defmodule Bedrock.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:ash_admin, "~> 1.0"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:ash_phoenix, "~> 2.0"},
       {:ash_postgres, "~> 2.0"},
@@ -71,7 +72,8 @@ defmodule Bedrock.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:igniter, "~> 0.6", only: [:dev, :test]}
     ]
   end
 

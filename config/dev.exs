@@ -69,7 +69,12 @@ config :bedrock, BedrockWeb.Endpoint,
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :bedrock, dev_routes: true, token_signing_secret: "dDdoGTb4CSaeagV06Re7hZ103zH3x1Ev"
+config :bedrock,
+  dev_routes: true,
+  token_signing_secret: "dDdoGTb4CSaeagV06Re7hZ103zH3x1Ev",
+  oauth2_issuer_url: "http://localhost:4000",
+  oauth2_resource_url: "http://localhost:4000",
+  oauth2_signing_secret: "XiJ7Xr4urfJyk5WTQlc/mip+MkOASqpPiNEW9CRSfb0"
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

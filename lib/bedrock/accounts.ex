@@ -5,5 +5,9 @@ defmodule Bedrock.Accounts do
   resources do
     resource Bedrock.Accounts.Token
     resource Bedrock.Accounts.User
+    resource Bedrock.Accounts.OauthClient
+    resource Bedrock.Accounts.OauthAuthorizationCode
+    resource Bedrock.Accounts.OauthRefreshToken
+    resource Bedrock.Accounts.OauthConsent
   end
 end

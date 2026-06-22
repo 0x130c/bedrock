@@ -8,6 +8,7 @@ defmodule Bedrock.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      {AshAuthentication.Oauth2Server.Supervisor, [otp_app: :bedrock]},
       BedrockWeb.Telemetry,
       Bedrock.Repo,
       {DNSCluster, query: Application.get_env(:bedrock, :dns_cluster_query) || :ignore},

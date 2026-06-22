@@ -2,6 +2,7 @@ defmodule BedrockWeb.Router do
   use BedrockWeb, :router
 
   use AshAuthentication.Phoenix.Router
+  use AshAuthentication.Phoenix.Oauth2Server.Router
   import Oban.Web.Router
 
   pipeline :browser do
@@ -19,6 +20,16 @@ defmodule BedrockWeb.Router do
     plug :accepts, ["json"]
     plug :load_from_bearer
     plug :set_actor, :user
+  end
+
+  scope "/" do
+    pipe_through :browser
+    oauth2_server_consent_routes(oauth2_server: Bedrock.Oauth2Server)
+  end
+
+  scope "/" do
+    pipe_through :api
+    oauth2_server_protocol_routes(oauth2_server: Bedrock.Oauth2Server)
   end
 
   scope "/", BedrockWeb do

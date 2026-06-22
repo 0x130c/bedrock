@@ -1,0 +1,29 @@
+# Umbrella-wide local development services (shared across all apps/).
+#
+# Strategy: only stateful backing services run in Docker. The BEAM/Phoenix app
+# itself runs on the host (`mix phx.server`) for fast hot-reload and a clean IEx.
+#
+# Start:  docker compose up -d
+# Stop:   docker compose down          (data survives in the named volume)
+# Reset:  docker compose down -v       (drops the volume — wipes all data)
+services:
+  db:
+    # pgvector/pgvector ships Postgres + the `vector` extension binaries.
+    # The extension still has to be enabled per-database (see README).
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      # No POSTGRES_DB: each app's Ecto creates its own <app>_dev / <app>_test.
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

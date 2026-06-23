@@ -116,7 +116,14 @@ defmodule Bedrock.Compliance.IngestControlsTest do
       connection: connection
     } do
       records = [
-        %{type: :purchase_order, id: "PO1", quantity: 100, unit_price: 50_000},
+        # Approval present so the journey conforms — isolating this to the 3-way match.
+        %{
+          type: :purchase_order,
+          id: "PO1",
+          quantity: 100,
+          unit_price: 50_000,
+          approvals: [%{role: "CFO"}]
+        },
         %{type: :goods_receipt, po_ref: "PO1", quantity: 100},
         %{type: :vendor_bill, po_ref: "PO1", quantity: 120, unit_price: 50_000}
       ]

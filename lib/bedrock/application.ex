@@ -10,6 +10,7 @@ defmodule Bedrock.Application do
     children = [
       {AshAuthentication.Oauth2Server.Supervisor, [otp_app: :bedrock]},
       BedrockWeb.Telemetry,
+      Bedrock.Vault,
       Bedrock.Repo,
       {DNSCluster, query: Application.get_env(:bedrock, :dns_cluster_query) || :ignore},
       {Oban,

@@ -33,6 +33,35 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
     }
   end
 
+  # A PO journey that skips approval — opens a single Conformance Deviation Case
+  # (no Rule Violation), so the weave queue holds exactly one job.
+  defp skipped_approval_journey do
+    [
+      %{
+        type: :purchase_order,
+        id: "PO5",
+        amount_total: 100_000_000,
+        currency: "VND",
+        unit_price: 1_000_000,
+        order_date: ~U[2026-03-01 09:00:00Z]
+      },
+      %{
+        type: :goods_receipt,
+        po_ref: "PO5",
+        quantity: 100,
+        occurred_at: ~U[2026-03-02 09:00:00Z]
+      },
+      %{
+        type: :vendor_bill,
+        po_ref: "PO5",
+        quantity: 100,
+        unit_price: 1_000_000,
+        occurred_at: ~U[2026-03-03 09:00:00Z]
+      },
+      %{type: :payment, po_ref: "PO5", occurred_at: ~U[2026-03-04 09:00:00Z]}
+    ]
+  end
+
   describe "weaving an AINarrative on a Case" do
     test "a Case yields an AINarrative linked to it once the weave job runs",
          %{org: org, connection: connection} do
@@ -85,6 +114,43 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
 
       assert case_record.ai_narrative.summary =~ "PO0042"
       assert case_record.ai_narrative.summary =~ "Threshold Approval"
+    end
+  end
+
+  describe "weaving an AINarrative on a Conformance Deviation Case" do
+    test "a Conformance Deviation Case also yields an AINarrative once the weave job runs",
+         %{org: org, connection: connection} do
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, skipped_approval_journey(), tenant: org)
+
+      assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :weave_narrative)
+
+      case_record = Ash.load!(case_record, [:ai_narrative, :conformance_deviation], tenant: org)
+
+      assert case_record.conformance_deviation.kind == :skipped_step
+      assert case_record.ai_narrative
+      assert is_binary(case_record.ai_narrative.summary)
+      assert case_record.ai_narrative.summary != ""
+    end
+
+    test "the conformance narrative is woven from the journey Hard Evidence", %{
+      org: org,
+      connection: connection
+    } do
+      Application.put_env(:bedrock, :context_weaver_stub, :echo)
+      on_exit(fn -> Application.delete_env(:bedrock, :context_weaver_stub) end)
+
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, skipped_approval_journey(), tenant: org)
+
+      assert %{success: 1} = Oban.drain_queue(queue: :weave_narrative)
+
+      case_record = Ash.load!(case_record, [:ai_narrative], tenant: org)
+
+      # The PO ref proves the journey snapshot reached the weaver; the control
+      # label identifies the finding as a conformance check, not a rule breach.
+      assert case_record.ai_narrative.summary =~ "PO5"
+      assert case_record.ai_narrative.summary =~ "Conformance"
     end
   end
 

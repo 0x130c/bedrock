@@ -82,18 +82,22 @@ defmodule Bedrock.Compliance.Ingestion do
   # snapshot of the offending journey — the same shape a Violation opens, with the
   # finding's "flow" sibling in place of a `Violation`.
   defp open_conformance_case!(instance, deviation, tenant) do
-    Compliance.open_conformance_case!(
-      %{
-        title: "PO #{instance.po_ref} — Conformance deviation (#{deviation.kind})",
-        conformance_deviation: %{
-          kind: deviation.kind,
-          reason: deviation.reason,
-          po_ref: instance.po_ref
+    case_record =
+      Compliance.open_conformance_case!(
+        %{
+          title: "PO #{instance.po_ref} — Conformance deviation (#{deviation.kind})",
+          conformance_deviation: %{
+            kind: deviation.kind,
+            reason: deviation.reason,
+            po_ref: instance.po_ref
+          },
+          hard_evidence: %{snapshot: journey_snapshot(instance, deviation)}
         },
-        hard_evidence: %{snapshot: journey_snapshot(instance, deviation)}
-      },
-      tenant: tenant
-    )
+        tenant: tenant
+      )
+
+    enqueue_weave(case_record, tenant)
+    case_record
   end
 
   defp journey_snapshot(instance, deviation) do
@@ -119,11 +123,15 @@ defmodule Bedrock.Compliance.Ingestion do
         tenant: tenant
       )
 
-    # Hand Layer 3 off to a background job: the verdict is already committed, so a
-    # slow or failing Context Weaver never blocks or alters this Case.
-    AshOban.run_trigger(case_record, :weave_narrative, tenant: to_tenant(tenant))
-
+    enqueue_weave(case_record, tenant)
     case_record
+  end
+
+  # Hand Layer 3 off to a background job: the verdict is already committed, so a
+  # slow or failing Context Weaver never blocks or alters the Case — whichever
+  # finding (Violation or Conformance Deviation) opened it.
+  defp enqueue_weave(case_record, tenant) do
+    AshOban.run_trigger(case_record, :weave_narrative, tenant: to_tenant(tenant))
   end
 
   defp to_tenant(tenant) when is_binary(tenant), do: tenant

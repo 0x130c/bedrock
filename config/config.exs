@@ -66,7 +66,7 @@ config :spark,
 config :bedrock,
   ecto_repos: [Bedrock.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: [Bedrock.Accounts]
+  ash_domains: [Bedrock.Accounts, Bedrock.Compliance]
 
 # Configure the endpoint
 config :bedrock, BedrockWeb.Endpoint,

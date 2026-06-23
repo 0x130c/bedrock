@@ -1,5 +1,13 @@
 import Config
 config :bedrock, token_signing_secret: "ccwHwt+2X47acfbiXNqyEzpTSROmZXKO"
+
+config :bedrock, Bedrock.Vault,
+  ciphers: [
+    default:
+      {Cloak.Ciphers.AES.GCM,
+       tag: "AES.GCM.V1", key: Base.decode64!("ct8Cyj0o1gjjN8HtTk10k4GKq8oDY54FWlxJ5Cdzj70=")}
+  ]
+
 config :bcrypt_elixir, log_rounds: 1
 config :bedrock, Oban, testing: :manual
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true

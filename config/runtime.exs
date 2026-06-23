@@ -74,6 +74,15 @@ if config_env() == :prod do
     oauth2_resource_url: Env.parse(Zoi.string(), "OAUTH2_RESOURCE_URL"),
     oauth2_signing_secret: Env.parse(Zoi.string(), "OAUTH2_SIGNING_SECRET")
 
+  # ash_cloak vault key for encrypting Connection credentials at rest (ADR-0007).
+  # Supply a base64-encoded 32-byte key via CLOAK_KEY (e.g. `openssl rand -base64 32`).
+  config :bedrock, Bedrock.Vault,
+    ciphers: [
+      default:
+        {Cloak.Ciphers.AES.GCM,
+         tag: "AES.GCM.V1", key: Base.decode64!(Env.parse!(Zoi.string(), "CLOAK_KEY"))}
+    ]
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

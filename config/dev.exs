@@ -1,6 +1,13 @@
 import Config
 config :ash, policies: [show_policy_breakdowns?: true]
 
+config :bedrock, Bedrock.Vault,
+  ciphers: [
+    default:
+      {Cloak.Ciphers.AES.GCM,
+       tag: "AES.GCM.V1", key: Base.decode64!("ct8Cyj0o1gjjN8HtTk10k4GKq8oDY54FWlxJ5Cdzj70=")}
+  ]
+
 # Configure your database
 config :bedrock, Bedrock.Repo,
   username: "postgres",

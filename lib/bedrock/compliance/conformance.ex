@@ -52,7 +52,7 @@ defmodule Bedrock.Compliance.Conformance do
     {:ok, from_state, _to_state} = Process.edge(activity)
 
     cond do
-      activity == :receive_goods and Process.rank(state) >= Process.rank(:paid) ->
+      receive_after_pay?(state, activity) ->
         receive_after_pay(state)
 
       Process.rank(state) < Process.rank(from_state) ->
@@ -61,6 +61,14 @@ defmodule Bedrock.Compliance.Conformance do
       true ->
         out_of_order(state, activity)
     end
+  end
+
+  # The named backward case: the goods-receipt activity (a Process landmark) once
+  # the journey has already reached the terminal state. Both ends are read from
+  # the Process, so reordering the model keeps this in step with every other branch.
+  defp receive_after_pay?(state, activity) do
+    activity == Process.goods_receipt_activity() and
+      Process.rank(state) >= Process.rank(Process.final_state())
   end
 
   defp skipped_step(state, activity, from_state) do
@@ -86,12 +94,14 @@ defmodule Bedrock.Compliance.Conformance do
   end
 
   defp receive_after_pay(state) do
+    activity = Process.goods_receipt_activity()
+
     %{
       kind: :receive_after_pay,
-      activity: :receive_goods,
+      activity: activity,
       reason:
-        "Process Instance recorded a goods receipt after the Purchase Order was already paid " <>
-          "(journey had reached #{label_state(state)})."
+        "Process Instance recorded #{label(activity)} after the journey had already reached " <>
+          "#{label_state(state)} — a receipt logged post-payment."
     }
   end
 

@@ -49,6 +49,19 @@ defmodule Bedrock.Compliance.Process do
   @doc "The state every reconstructed journey starts from (a Purchase Order exists)."
   def initial_state, do: :created
 
+  @doc "The terminal state of the canonical Process — the journey is complete once it is reached."
+  def final_state, do: List.last(ordered_states())
+
+  @doc """
+  The activity Bedrock watches for the receive-after-pay pattern: a goods receipt
+  recorded once the journey has already reached the terminal (paid) state is a
+  notable control signal, so it earns its own Conformance Deviation kind. This is
+  the one landmark the conformance classifier cannot derive structurally — it
+  lives here on the Process model, beside the transition that defines the activity,
+  rather than buried in the classifier.
+  """
+  def goods_receipt_activity, do: :receive_goods
+
   @doc """
   Advance one step along the canonical Process.
 

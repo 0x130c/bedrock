@@ -45,6 +45,26 @@ defmodule Bedrock.Compliance.ProcessInstanceTest do
       assert Enum.map(instance.activities, & &1.activity) == [:receive_goods]
     end
 
+    test "a P2P event with no po_ref is reported as unmatched, never attached to a journey" do
+      records = [
+        %{
+          type: :purchase_order,
+          id: "PO1",
+          order_date: ~U[2026-01-01 09:00:00Z],
+          approvals: [%{role: "CFO"}]
+        },
+        # A payment that names no Purchase Order — a data-quality problem, not a step.
+        %{type: :payment, occurred_at: ~U[2026-01-03 09:00:00Z]},
+        %{type: :goods_receipt, po_ref: "PO1", occurred_at: ~U[2026-01-02 09:00:00Z]}
+      ]
+
+      assert [%{type: :payment}] = ProcessInstance.unmatched_events(records)
+
+      # The orphan never sneaks into the reconstructed journey.
+      assert [%{po_ref: "PO1", activities: activities}] = ProcessInstance.reconstruct(records)
+      assert Enum.map(activities, & &1.activity) == [:approve, :receive_goods]
+    end
+
     test "timed events keep their real chronological order even when another event is untimed" do
       # The bill is wall-clock earlier than the approval — a real out-of-order the
       # reconstruction must preserve, regardless of input order, even though the

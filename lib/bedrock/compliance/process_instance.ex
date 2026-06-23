@@ -20,6 +20,10 @@ defmodule Bedrock.Compliance.ProcessInstance do
 
   alias Bedrock.Compliance.Process
 
+  # The normalized record types that are steps in a PO's journey; each must name
+  # its Purchase Order via `po_ref` to be attachable to a ProcessInstance.
+  @event_types [:goods_receipt, :vendor_bill, :payment]
+
   postgres do
     table "process_instances"
     repo Bedrock.Repo
@@ -69,6 +73,18 @@ defmodule Bedrock.Compliance.ProcessInstance do
     |> Enum.map(fn po ->
       related = Map.get(by_po_ref, po.id, [])
       %{po_ref: po.id, activities: order(activities_for(po, related))}
+    end)
+  end
+
+  @doc """
+  The P2P event records that name no Purchase Order (`po_ref` missing) and so
+  cannot be attached to any Process Instance. `reconstruct/1` already excludes
+  them; this surfaces them so the caller can flag a data-quality issue rather than
+  drop them silently.
+  """
+  def unmatched_events(records) do
+    Enum.filter(records, fn record ->
+      Map.get(record, :type) in @event_types and is_nil(Map.get(record, :po_ref))
     end)
   end
 

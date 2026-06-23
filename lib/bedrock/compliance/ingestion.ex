@@ -18,6 +18,8 @@ defmodule Bedrock.Compliance.Ingestion do
   """
   use Ash.Resource.Actions.Implementation
 
+  require Logger
+
   alias Bedrock.Compliance
   alias Bedrock.Compliance.{Conformance, ProcessInstance}
 
@@ -50,6 +52,7 @@ defmodule Bedrock.Compliance.Ingestion do
         open_case!(control, finding, tenant)
       end
 
+    warn_unmatched_events(records)
     instances = reconstruct_process_instances!(records, tenant)
 
     conformance_cases =
@@ -78,6 +81,22 @@ defmodule Bedrock.Compliance.Ingestion do
 
   defp activity_sequence(instance), do: Enum.map(instance.activities, & &1.activity)
 
+  # A P2P event that names no Purchase Order can't join any journey — surface it as
+  # a data-quality signal instead of dropping it silently.
+  defp warn_unmatched_events(records) do
+    case ProcessInstance.unmatched_events(records) do
+      [] ->
+        :ok
+
+      events ->
+        Logger.warning(
+          "ingest_events: #{length(events)} P2P event(s) with no po_ref skipped — " <>
+            "cannot attach to a Process Instance: " <>
+            Enum.map_join(events, ", ", &to_string(Map.get(&1, :type)))
+        )
+    end
+  end
+
   # A Conformance Deviation opens a Case bundling the deviation and a HardEvidence
   # snapshot of the offending journey — the same shape a Violation opens, with the
   # finding's "flow" sibling in place of a `Violation`.
@@ -105,10 +124,7 @@ defmodule Bedrock.Compliance.Ingestion do
       po_ref: instance.po_ref,
       deviation: deviation.kind,
       offending_activity: deviation.activity,
-      journey:
-        Enum.map(instance.activities, fn activity ->
-          %{activity: activity.activity, occurred_at: activity.occurred_at}
-        end)
+      journey: instance.activities
     }
   end
 

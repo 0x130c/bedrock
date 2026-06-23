@@ -29,7 +29,7 @@ defmodule Bedrock.Compliance.ConformanceTest do
 
       assert [deviation] = Conformance.check(activities)
       assert deviation.kind == :receive_after_pay
-      assert deviation.reason =~ "paid"
+      assert deviation.reason =~ "payment"
     end
 
     test "an approval recorded after billing raises an out-of-order deviation" do

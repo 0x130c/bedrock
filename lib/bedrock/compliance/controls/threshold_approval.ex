@@ -8,11 +8,25 @@ defmodule Bedrock.Compliance.Controls.ThresholdApproval do
   Control and explaining the breach, or `:ok`. The source of truth for whether
   this rule is breached lives here and nowhere else.
   """
+  @behaviour Bedrock.Compliance.Control
 
   @control_name "Threshold Approval"
 
-  @doc "The human-readable name of this Control, used in Violation reasons."
+  @impl true
   def control_name, do: @control_name
+
+  @impl true
+  def findings(records, opts) do
+    Enum.flat_map(records, fn record ->
+      case evaluate(record, opts) do
+        {:violation, reason} ->
+          [%{subject: "PO #{record[:id]}", evidence: record, reason: reason}]
+
+        :ok ->
+          []
+      end
+    end)
+  end
 
   @doc """
   Evaluate one normalized PO record against the threshold-approval rule.

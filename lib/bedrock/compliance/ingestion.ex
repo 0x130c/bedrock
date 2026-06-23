@@ -3,49 +3,57 @@ defmodule Bedrock.Compliance.Ingestion do
   Implementation of the `ingest_events` action — the seam the whole system hangs
   off. Runs the Layer-1 Deterministic Engine over a batch of normalized Odoo
   records and, for each breach, opens a `Case` bundling the `Violation` and a
-  `HardEvidence` snapshot of the offending record.
+  `HardEvidence` snapshot of the offending record(s).
 
-  Slice 1 runs exactly one activated Control with fixed parameters. The
-  parameterized Control library and per-Organization activation arrive in later
-  slices; the Control logic itself already takes its parameters
-  (`Bedrock.Compliance.Controls.ThresholdApproval`).
+  Each activated Control implements the `Bedrock.Compliance.Control` behaviour and
+  sees the whole batch, so cross-record Controls (split-PO, duplicate
+  invoice/vendor, 3-way match) can correlate records a per-record check could
+  never see together. Activation parameters are fixed here for now; the
+  per-Organization Control activation resource arrives in a later slice.
   """
   use Ash.Resource.Actions.Implementation
 
   alias Bedrock.Compliance
-  alias Bedrock.Compliance.Controls.ThresholdApproval
 
-  # Activated Control parameters for Slice 1 (CONTEXT.md example: "PO > 500M must
-  # carry a CFO signature"). Moves to a Control activation resource in a later slice.
-  @threshold 500_000_000
-  @approver_role "CFO"
+  alias Bedrock.Compliance.Controls.{
+    DuplicateInvoice,
+    DuplicateVendor,
+    SplitPo,
+    ThreeWayMatch,
+    ThresholdApproval
+  }
+
+  # The activated Controls and their parameters (CONTEXT.md example: "PO > 500M
+  # must carry a CFO signature"). Moves to a Control activation resource later.
+  @controls [
+    {ThresholdApproval, [threshold: 500_000_000, approver_role: "CFO"]},
+    {SplitPo, [threshold: 500_000_000, window_hours: 72]},
+    {DuplicateInvoice, []},
+    {DuplicateVendor, []},
+    {ThreeWayMatch, [quantity_tolerance: 0, price_tolerance: 0]}
+  ]
 
   @impl true
   def run(input, _opts, _context) do
     tenant = input.tenant
+    records = input.arguments.records
 
     cases =
-      input.arguments.records
-      |> Enum.flat_map(fn record ->
-        case ThresholdApproval.evaluate(record,
-               threshold: @threshold,
-               approver_role: @approver_role
-             ) do
-          {:violation, reason} -> [open_case!(record, reason, tenant)]
-          :ok -> []
-        end
-      end)
+      for {control, opts} <- @controls,
+          finding <- control.findings(records, opts) do
+        open_case!(control, finding, tenant)
+      end
 
     {:ok, cases}
   end
 
-  defp open_case!(record, reason, tenant) do
+  defp open_case!(control, finding, tenant) do
     case_record =
       Compliance.open_case!(
         %{
-          title: "PO #{record[:id]} — #{ThresholdApproval.control_name()}",
-          violation: %{control_name: ThresholdApproval.control_name(), reason: reason},
-          hard_evidence: %{snapshot: record}
+          title: "#{finding.subject} — #{control.control_name()}",
+          violation: %{control_name: control.control_name(), reason: finding.reason},
+          hard_evidence: %{snapshot: finding.evidence}
         },
         tenant: tenant
       )

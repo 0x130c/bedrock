@@ -187,5 +187,39 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
       # The Case itself survives and is still listable.
       assert [_one] = Compliance.list_cases!(tenant: org)
     end
+
+    test "a failed weave leaves a Conformance Deviation Case verdict — deviation and Hard Evidence — fully intact",
+         %{org: org, connection: connection} do
+      Application.put_env(:bedrock, :context_weaver_stub, {:error, :llm_unavailable})
+      on_exit(fn -> Application.delete_env(:bedrock, :context_weaver_stub) end)
+
+      # The verdict is committed regardless of Layer 3: ingestion still succeeds.
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, skipped_approval_journey(), tenant: org)
+
+      # Only the weave job is affected, and the failure is surfaced (logged).
+      log =
+        capture_log(fn ->
+          assert %{success: 0} = Oban.drain_queue(queue: :weave_narrative)
+        end)
+
+      assert log =~ "weave_narrative"
+
+      case_record =
+        Ash.load!(case_record, [:conformance_deviation, :hard_evidence, :ai_narrative],
+          tenant: org
+        )
+
+      # No narrative, and the Case is not marked as woven.
+      refute case_record.ai_narrative
+      refute case_record.narrative_woven_at
+
+      # The verdict-bearing facts are untouched.
+      assert case_record.conformance_deviation.kind == :skipped_step
+      assert case_record.hard_evidence.snapshot["po_ref"] == "PO5"
+
+      # The Case itself survives and is still listable.
+      assert [_one] = Compliance.list_cases!(tenant: org)
+    end
   end
 end

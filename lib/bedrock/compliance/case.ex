@@ -10,11 +10,29 @@ defmodule Bedrock.Compliance.Case do
   use Ash.Resource,
     otp_app: :bedrock,
     domain: Bedrock.Compliance,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    extensions: [AshOban]
 
   postgres do
     table "cases"
     repo Bedrock.Repo
+  end
+
+  oban do
+    triggers do
+      # Layer 3 weaving runs off the verdict path: enqueued programmatically by
+      # `ingest_events` once a Case is committed (scheduler disabled). A failed
+      # weave fails only this job; the Case verdict is never blocked or altered.
+      trigger :weave_narrative do
+        action :weave_narrative
+        worker_read_action :read
+        where expr(is_nil(narrative_woven_at))
+        queue :weave_narrative
+        scheduler_cron false
+        max_attempts 1
+        worker_module_name Bedrock.Compliance.Case.AshOban.Worker.WeaveNarrative
+      end
+    end
   end
 
   actions do
@@ -29,6 +47,13 @@ defmodule Bedrock.Compliance.Case do
 
       change manage_relationship(:violation, type: :create)
       change manage_relationship(:hard_evidence, type: :create)
+    end
+
+    update :weave_narrative do
+      description "Weave the AINarrative for this Case from its Hard Evidence (Layer 3)."
+      require_atomic? false
+
+      change Bedrock.Compliance.Changes.WeaveNarrative
     end
   end
 
@@ -51,11 +76,18 @@ defmodule Bedrock.Compliance.Case do
       public? true
     end
 
+    # Set when the Context Weaver has woven (or is woven for) this Case; nil means
+    # no narrative yet. Drives the weave trigger's `where` filter.
+    attribute :narrative_woven_at, :utc_datetime_usec do
+      public? true
+    end
+
     timestamps()
   end
 
   relationships do
     has_one :violation, Bedrock.Compliance.Violation
     has_one :hard_evidence, Bedrock.Compliance.HardEvidence
+    has_one :ai_narrative, Bedrock.Compliance.AINarrative
   end
 end

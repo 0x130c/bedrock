@@ -40,13 +40,23 @@ defmodule Bedrock.Compliance.Ingestion do
   end
 
   defp open_case!(record, reason, tenant) do
-    Compliance.open_case!(
-      %{
-        title: "PO #{record[:id]} — #{ThresholdApproval.control_name()}",
-        violation: %{control_name: ThresholdApproval.control_name(), reason: reason},
-        hard_evidence: %{snapshot: record}
-      },
-      tenant: tenant
-    )
+    case_record =
+      Compliance.open_case!(
+        %{
+          title: "PO #{record[:id]} — #{ThresholdApproval.control_name()}",
+          violation: %{control_name: ThresholdApproval.control_name(), reason: reason},
+          hard_evidence: %{snapshot: record}
+        },
+        tenant: tenant
+      )
+
+    # Hand Layer 3 off to a background job: the verdict is already committed, so a
+    # slow or failing Context Weaver never blocks or alters this Case.
+    AshOban.run_trigger(case_record, :weave_narrative, tenant: to_tenant(tenant))
+
+    case_record
   end
+
+  defp to_tenant(tenant) when is_binary(tenant), do: tenant
+  defp to_tenant(tenant), do: Ash.ToTenant.to_tenant(tenant, Compliance.Case)
 end

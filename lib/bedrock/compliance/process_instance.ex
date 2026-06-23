@@ -7,9 +7,11 @@ defmodule Bedrock.Compliance.ProcessInstance do
   survives even though the ERP cannot be trusted to retain it (ADR-0003/0004).
 
   `reconstruct/1` is the pure core: a batch of normalized records in, one ordered
-  ProcessInstance per PO out, no database. Activities are ordered by occurrence;
-  events that share (or lack) a timestamp fall back to canonical Process order so
-  an untimed-but-conformant journey is never mistaken for an out-of-order one.
+  ProcessInstance per PO out, no database. Activities are ordered by occurrence
+  time under a *total* order (so the result never depends on input order). An
+  event with no timestamp has an unknown time and sorts after every timed event;
+  the activity's canonical Process position breaks ties and orders untimed events
+  among themselves.
   """
   use Ash.Resource,
     otp_app: :bedrock,
@@ -94,23 +96,17 @@ defmodule Bedrock.Compliance.ProcessInstance do
 
   defp timestamp(record), do: Map.get(record, :occurred_at) || Map.get(record, :order_date)
 
-  defp order(activities), do: Enum.sort(activities, &before?/2)
+  defp order(activities), do: Enum.sort_by(activities, &sort_key/1)
 
-  defp before?(a, b) do
-    case {a.occurred_at, b.occurred_at} do
-      {nil, _} -> index(a.activity) <= index(b.activity)
-      {_, nil} -> index(a.activity) <= index(b.activity)
-      {ta, tb} -> compare(ta, tb, a.activity, b.activity)
-    end
-  end
+  # A total ordering key (`Enum.sort_by` compares these structurally, so it is
+  # transitive by construction — unlike a hand-rolled comparator). Timed events
+  # sort by their real timestamp; an untimed event has an unknown time, so it
+  # sorts after every timed event (a consistent +∞), and ties — including two
+  # untimed events — break on the activity's canonical Process position.
+  defp sort_key(%{occurred_at: nil} = activity), do: {1, 0, index(activity.activity)}
 
-  defp compare(ta, tb, activity_a, activity_b) do
-    case DateTime.compare(ta, tb) do
-      :eq -> index(activity_a) <= index(activity_b)
-      :lt -> true
-      :gt -> false
-    end
-  end
+  defp sort_key(%{occurred_at: occurred_at} = activity),
+    do: {0, DateTime.to_unix(occurred_at, :microsecond), index(activity.activity)}
 
   defp index(activity), do: Enum.find_index(Process.activities(), &(&1 == activity))
 end

@@ -44,5 +44,34 @@ defmodule Bedrock.Compliance.ProcessInstanceTest do
       assert [instance] = ProcessInstance.reconstruct(records)
       assert Enum.map(instance.activities, & &1.activity) == [:receive_goods]
     end
+
+    test "timed events keep their real chronological order even when another event is untimed" do
+      # The bill is wall-clock earlier than the approval — a real out-of-order the
+      # reconstruction must preserve, regardless of input order, even though the
+      # goods receipt carries no timestamp at all.
+      po = %{
+        type: :purchase_order,
+        id: "PO2",
+        order_date: ~U[2020-01-10 09:00:00Z],
+        approvals: [%{role: "CFO"}]
+      }
+
+      receipt = %{type: :goods_receipt, po_ref: "PO2"}
+      bill = %{type: :vendor_bill, po_ref: "PO2", occurred_at: ~U[2020-01-01 09:00:00Z]}
+
+      names = fn records ->
+        [instance] = ProcessInstance.reconstruct(records)
+        Enum.map(instance.activities, & &1.activity)
+      end
+
+      order = names.([po, receipt, bill])
+
+      # The earlier-timestamped bill precedes the later-timestamped approval...
+      assert Enum.find_index(order, &(&1 == :bill)) < Enum.find_index(order, &(&1 == :approve))
+
+      # ...and the reconstructed order is fully determined, not input-order dependent.
+      assert order == names.([bill, receipt, po])
+      assert order == names.([receipt, bill, po])
+    end
   end
 end

@@ -8,6 +8,8 @@ defmodule Bedrock.Compliance.IngestConformanceTest do
   """
   use Bedrock.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Bedrock.Compliance
 
   setup do
@@ -214,6 +216,37 @@ defmodule Bedrock.Compliance.IngestConformanceTest do
       assert {:ok, []} = ingest(connection, records, org)
       assert [] = Compliance.list_cases!(tenant: org)
       assert [_instance] = Compliance.list_process_instances!(tenant: org)
+    end
+  end
+
+  describe "data quality" do
+    test "a P2P event with no po_ref is surfaced in the logs, not silently dropped", %{
+      org: org,
+      connection: connection
+    } do
+      records = [
+        %{
+          type: :purchase_order,
+          id: "POX",
+          amount_total: 100_000_000,
+          currency: "VND",
+          order_date: ~U[2026-07-01 09:00:00Z],
+          approvals: [%{role: "CFO"}]
+        },
+        # A payment that names no Purchase Order — cannot attach to any journey.
+        %{type: :payment, occurred_at: ~U[2026-07-02 09:00:00Z]}
+      ]
+
+      log =
+        capture_log(fn ->
+          assert {:ok, _cases} = ingest(connection, records, org)
+        end)
+
+      assert log =~ "no po_ref"
+      assert log =~ "payment"
+
+      # The orphan never created a journey of its own: only the PO's instance exists.
+      assert [%{po_ref: "POX"}] = Compliance.list_process_instances!(tenant: org)
     end
   end
 end

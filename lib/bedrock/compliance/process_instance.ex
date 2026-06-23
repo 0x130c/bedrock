@@ -20,9 +20,12 @@ defmodule Bedrock.Compliance.ProcessInstance do
 
   alias Bedrock.Compliance.Process
 
-  # The normalized record types that are steps in a PO's journey; each must name
-  # its Purchase Order via `po_ref` to be attachable to a ProcessInstance.
-  @event_types [:goods_receipt, :vendor_bill, :payment]
+  # P2P events that always reference a Purchase Order in Odoo, so one arriving with
+  # no `po_ref` is a data-quality defect rather than a journey step. A vendor bill
+  # is intentionally excluded: a non-PO (direct) invoice is legitimate, and the
+  # duplicate-invoice Control still sees it — flagging every po_ref-less bill would
+  # cry wolf.
+  @po_anchored_events [:goods_receipt, :payment]
 
   postgres do
     table "process_instances"
@@ -84,7 +87,7 @@ defmodule Bedrock.Compliance.ProcessInstance do
   """
   def unmatched_events(records) do
     Enum.filter(records, fn record ->
-      Map.get(record, :type) in @event_types and is_nil(Map.get(record, :po_ref))
+      Map.get(record, :type) in @po_anchored_events and is_nil(Map.get(record, :po_ref))
     end)
   end
 

@@ -13,7 +13,7 @@ config :ash_oban, pro?: false
 config :bedrock, Oban,
   engine: Oban.Engines.Basic,
   notifier: Oban.Notifiers.Postgres,
-  queues: [default: 10],
+  queues: [default: 10, weave_narrative: 10],
   repo: Bedrock.Repo,
   plugins: [{Oban.Plugins.Cron, []}]
 

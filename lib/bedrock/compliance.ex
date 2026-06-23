@@ -33,5 +33,9 @@ defmodule Bedrock.Compliance do
 
     resource Bedrock.Compliance.Violation
     resource Bedrock.Compliance.HardEvidence
+
+    resource Bedrock.Compliance.AINarrative do
+      define :summarize, action: :summarize, args: [:control_name, :reason, :evidence]
+    end
   end
 end

@@ -10,6 +10,10 @@ config :bedrock, Bedrock.Vault,
 
 config :bcrypt_elixir, log_rounds: 1
 config :bedrock, Oban, testing: :manual
+
+# The Context Weaver (Layer 3) uses a deterministic fake LLM in tests — no real
+# calls. Per-test behavior is steered via `:context_weaver_stub`.
+config :bedrock, :context_weaver_llm, Bedrock.Test.ContextWeaverStub
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 
 # Configure your database

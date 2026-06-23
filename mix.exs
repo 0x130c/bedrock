@@ -42,6 +42,8 @@ defmodule Bedrock.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:ex_money_sql, "~> 2.0"},
+      {:ash_money, "~> 0.2"},
       {:usage_rules, "~> 1.0", only: [:dev]},
       {:ash_ai, "~> 0.7"},
       {:tidewave, "~> 0.6", only: [:dev]},

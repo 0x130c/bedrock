@@ -21,7 +21,7 @@ defmodule Bedrock.Compliance.Ingestion do
   require Logger
 
   alias Bedrock.Compliance
-  alias Bedrock.Compliance.{Conformance, ProcessInstance}
+  alias Bedrock.Compliance.{AnomalyDetection, Conformance, ProcessInstance}
 
   alias Bedrock.Compliance.Controls.{
     DuplicateInvoice,
@@ -61,7 +61,21 @@ defmodule Bedrock.Compliance.Ingestion do
         open_conformance_case!(instance, deviation, tenant)
       end
 
-    {:ok, violation_cases ++ conformance_cases}
+    anomaly_cases = detect_anomalies(records, tenant)
+
+    {:ok, violation_cases ++ conformance_cases ++ anomaly_cases}
+  end
+
+  # Layer 2: score the batch against the tenant's seeded Baselines and open a Case
+  # for every outlier. With no Baseline (a cold-start Organization) this finds
+  # nothing — Layer 2 raises suspicion only where backfill has learned normal.
+  defp detect_anomalies(records, tenant) do
+    baselines = Compliance.list_baselines!(tenant: tenant)
+
+    for detector <- AnomalyDetection.detectors(),
+        finding <- AnomalyDetection.anomalies(detector, records, baselines) do
+      open_anomaly_case!(detector, finding, tenant)
+    end
   end
 
   # Reconstruct one ProcessInstance per PO from the batch, persist its ordered
@@ -126,6 +140,30 @@ defmodule Bedrock.Compliance.Ingestion do
       offending_activity: deviation.activity,
       journey: instance.activities
     }
+  end
+
+  # A Layer-2 Anomaly opens a Case bundling the candidate (its Anomaly Score and a
+  # candidate-framed reason) and a HardEvidence snapshot — the same shape a
+  # Violation opens, with the suspicion-bearing `Anomaly` in place of a `Violation`.
+  defp open_anomaly_case!(detector, finding, tenant) do
+    case_record =
+      Compliance.open_anomaly_case!(
+        %{
+          title: "#{finding.subject} — Anomaly (#{detector.detector_name()})",
+          anomaly: %{
+            anomaly_type: finding.anomaly_type,
+            score: finding.score,
+            reason: finding.reason,
+            # Odoo entity ids arrive as integers; the Anomaly stores entity_ref as a string.
+            entity_ref: to_string(finding.entity_ref)
+          },
+          hard_evidence: %{snapshot: finding.evidence}
+        },
+        tenant: tenant
+      )
+
+    enqueue_weave(case_record, tenant)
+    case_record
   end
 
   defp open_case!(control, finding, tenant) do

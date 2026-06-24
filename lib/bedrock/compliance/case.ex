@@ -60,6 +60,17 @@ defmodule Bedrock.Compliance.Case do
       change manage_relationship(:hard_evidence, type: :create)
     end
 
+    create :open_anomaly do
+      description "Open a Case from a Layer-2 Anomaly candidate, creating it and its HardEvidence."
+      accept [:title]
+
+      argument :anomaly, :map, allow_nil?: false
+      argument :hard_evidence, :map, allow_nil?: false
+
+      change manage_relationship(:anomaly, type: :create)
+      change manage_relationship(:hard_evidence, type: :create)
+    end
+
     update :weave_narrative do
       description "Weave the AINarrative for this Case from its Hard Evidence (Layer 3)."
       require_atomic? false
@@ -99,6 +110,7 @@ defmodule Bedrock.Compliance.Case do
   relationships do
     has_one :violation, Bedrock.Compliance.Violation
     has_one :conformance_deviation, Bedrock.Compliance.ConformanceDeviation
+    has_one :anomaly, Bedrock.Compliance.Anomaly
     has_one :hard_evidence, Bedrock.Compliance.HardEvidence
     has_one :ai_narrative, Bedrock.Compliance.AINarrative
   end

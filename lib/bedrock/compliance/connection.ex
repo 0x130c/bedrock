@@ -42,6 +42,19 @@ defmodule Bedrock.Compliance.Connection do
 
       run Bedrock.Compliance.Ingestion
     end
+
+    action :backfill_baselines, {:array, :struct} do
+      description "Seed Layer-2 Baselines from a batch of historical normalized Odoo records (ADR-0006)."
+
+      argument :connection, :struct do
+        allow_nil? false
+        constraints instance_of: __MODULE__
+      end
+
+      argument :records, {:array, :map}, allow_nil?: false
+
+      run Bedrock.Compliance.Backfill
+    end
   end
 
   multitenancy do

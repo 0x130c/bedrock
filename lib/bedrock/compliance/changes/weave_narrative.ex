@@ -5,9 +5,10 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
   any LLM failure fails only the job — the already-committed Case verdict is
   untouched.
 
-  Works for either finding that can open a Case (ADR-0004): a Rule `Violation`
-  names its Control, while a `ConformanceDeviation` is weaved under the P2P
-  Conformance check, with its deterministic reason as context.
+  Works for any of the three findings that can open a Case (ADR-0004): a Rule
+  `Violation` names its Control, a `ConformanceDeviation` is weaved under the P2P
+  Conformance check, and a Layer-2 `Anomaly` is weaved as a candidate (never a
+  verdict) — each with its deterministic reason as context.
   """
   use Ash.Resource.Change
 
@@ -15,12 +16,15 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
   alias Bedrock.Compliance.ContextWeaver
 
   @conformance_control_name "P2P Conformance"
+  @anomaly_control_name "Anomaly Detection (Layer 2)"
 
   @impl true
   def change(changeset, _opts, _context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
       case_record =
-        Ash.load!(changeset.data, [:violation, :conformance_deviation, :hard_evidence],
+        Ash.load!(
+          changeset.data,
+          [:violation, :conformance_deviation, :anomaly, :hard_evidence],
           tenant: changeset.tenant
         )
 
@@ -47,4 +51,7 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
 
   defp finding(%{conformance_deviation: %{reason: reason}}),
     do: {@conformance_control_name, reason}
+
+  defp finding(%{anomaly: %{reason: reason}}),
+    do: {@anomaly_control_name, reason}
 end

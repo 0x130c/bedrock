@@ -154,6 +154,95 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
     end
   end
 
+  # A process-wide Baseline of normal change→payment windows (5–15 days), then one
+  # vendor paid just 2h after its bank account changed — a flagship Layer-2 Anomaly.
+  defp bank_change_history do
+    [120, 168, 216, 264, 312, 360]
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {hours, i} ->
+      changed = ~U[2025-01-01 09:00:00Z]
+
+      [
+        %{
+          type: :vendor_change,
+          vendor_id: "H#{i}",
+          field: :bank_account,
+          old_value: "A#{i}",
+          new_value: "B#{i}",
+          occurred_at: changed
+        },
+        %{
+          type: :payment,
+          vendor_id: "H#{i}",
+          po_ref: "P#{i}",
+          amount_total: 10_000_000,
+          occurred_at: DateTime.add(changed, hours * 3600, :second)
+        }
+      ]
+    end)
+  end
+
+  defp fast_redirect_payment do
+    [
+      %{
+        type: :vendor_change,
+        vendor_id: "VX",
+        field: :bank_account,
+        old_value: "VN-LEGIT",
+        new_value: "VN-EVIL",
+        occurred_at: ~U[2026-02-01 09:00:00Z]
+      },
+      %{
+        type: :payment,
+        vendor_id: "VX",
+        po_ref: "PO-X",
+        amount_total: 50_000_000,
+        occurred_at: ~U[2026-02-01 11:00:00Z]
+      }
+    ]
+  end
+
+  describe "weaving an AINarrative on an Anomaly Case" do
+    test "an Anomaly Case also yields an AINarrative once the weave job runs",
+         %{org: org, connection: connection} do
+      assert {:ok, _} =
+               Compliance.backfill_baselines(connection, bank_change_history(), tenant: org)
+
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, fast_redirect_payment(), tenant: org)
+
+      assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :weave_narrative)
+
+      case_record = Ash.load!(case_record, [:ai_narrative, :anomaly], tenant: org)
+
+      assert case_record.anomaly.anomaly_type == :bank_change_before_payment
+      assert case_record.ai_narrative
+      assert is_binary(case_record.ai_narrative.summary)
+      assert case_record.ai_narrative.summary != ""
+    end
+
+    test "the anomaly narrative is woven from the candidate's Hard Evidence", %{
+      org: org,
+      connection: connection
+    } do
+      Application.put_env(:bedrock, :context_weaver_stub, :echo)
+      on_exit(fn -> Application.delete_env(:bedrock, :context_weaver_stub) end)
+
+      assert {:ok, _} =
+               Compliance.backfill_baselines(connection, bank_change_history(), tenant: org)
+
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, fast_redirect_payment(), tenant: org)
+
+      assert %{success: 1} = Oban.drain_queue(queue: :weave_narrative)
+
+      case_record = Ash.load!(case_record, [:ai_narrative], tenant: org)
+
+      # The control label marks this as a Layer-2 Anomaly candidate, not a verdict.
+      assert case_record.ai_narrative.summary =~ "Anomaly"
+    end
+  end
+
   describe "graceful degradation when the Context Weaver fails" do
     test "a failed weave leaves the Case verdict — Violation and Hard Evidence — fully intact",
          %{org: org, connection: connection} do

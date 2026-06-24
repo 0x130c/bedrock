@@ -24,16 +24,24 @@ defmodule Bedrock.Compliance do
     resource Bedrock.Compliance.Connection do
       define :create_connection, action: :create
       define :ingest_events, action: :ingest_events, args: [:connection, :records]
+      define :backfill_baselines, action: :backfill_baselines, args: [:connection, :records]
+    end
+
+    resource Bedrock.Compliance.Baseline do
+      define :create_baseline, action: :create
+      define :list_baselines, action: :read
     end
 
     resource Bedrock.Compliance.Case do
       define :open_case, action: :open
       define :open_conformance_case, action: :open_conformance
+      define :open_anomaly_case, action: :open_anomaly
       define :list_cases, action: :read
     end
 
     resource Bedrock.Compliance.Violation
     resource Bedrock.Compliance.ConformanceDeviation
+    resource Bedrock.Compliance.Anomaly
     resource Bedrock.Compliance.HardEvidence
 
     # The canonical P2P Process state machine: never persisted, only its

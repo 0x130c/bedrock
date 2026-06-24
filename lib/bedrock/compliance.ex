@@ -28,11 +28,22 @@ defmodule Bedrock.Compliance do
 
     resource Bedrock.Compliance.Case do
       define :open_case, action: :open
+      define :open_conformance_case, action: :open_conformance
       define :list_cases, action: :read
     end
 
     resource Bedrock.Compliance.Violation
+    resource Bedrock.Compliance.ConformanceDeviation
     resource Bedrock.Compliance.HardEvidence
+
+    # The canonical P2P Process state machine: never persisted, only its
+    # transition table is read by the Conformance checker (ADR-0004).
+    resource Bedrock.Compliance.Process
+
+    resource Bedrock.Compliance.ProcessInstance do
+      define :create_process_instance, action: :create
+      define :list_process_instances, action: :read
+    end
 
     resource Bedrock.Compliance.AINarrative do
       define :summarize, action: :summarize, args: [:control_name, :reason, :evidence]

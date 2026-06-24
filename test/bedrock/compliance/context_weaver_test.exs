@@ -33,6 +33,35 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
     }
   end
 
+  # A PO journey that skips approval — opens a single Conformance Deviation Case
+  # (no Rule Violation), so the weave queue holds exactly one job.
+  defp skipped_approval_journey do
+    [
+      %{
+        type: :purchase_order,
+        id: "PO5",
+        amount_total: 100_000_000,
+        currency: "VND",
+        unit_price: 1_000_000,
+        order_date: ~U[2026-03-01 09:00:00Z]
+      },
+      %{
+        type: :goods_receipt,
+        po_ref: "PO5",
+        quantity: 100,
+        occurred_at: ~U[2026-03-02 09:00:00Z]
+      },
+      %{
+        type: :vendor_bill,
+        po_ref: "PO5",
+        quantity: 100,
+        unit_price: 1_000_000,
+        occurred_at: ~U[2026-03-03 09:00:00Z]
+      },
+      %{type: :payment, po_ref: "PO5", occurred_at: ~U[2026-03-04 09:00:00Z]}
+    ]
+  end
+
   describe "weaving an AINarrative on a Case" do
     test "a Case yields an AINarrative linked to it once the weave job runs",
          %{org: org, connection: connection} do
@@ -88,6 +117,43 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
     end
   end
 
+  describe "weaving an AINarrative on a Conformance Deviation Case" do
+    test "a Conformance Deviation Case also yields an AINarrative once the weave job runs",
+         %{org: org, connection: connection} do
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, skipped_approval_journey(), tenant: org)
+
+      assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :weave_narrative)
+
+      case_record = Ash.load!(case_record, [:ai_narrative, :conformance_deviation], tenant: org)
+
+      assert case_record.conformance_deviation.kind == :skipped_step
+      assert case_record.ai_narrative
+      assert is_binary(case_record.ai_narrative.summary)
+      assert case_record.ai_narrative.summary != ""
+    end
+
+    test "the conformance narrative is woven from the journey Hard Evidence", %{
+      org: org,
+      connection: connection
+    } do
+      Application.put_env(:bedrock, :context_weaver_stub, :echo)
+      on_exit(fn -> Application.delete_env(:bedrock, :context_weaver_stub) end)
+
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, skipped_approval_journey(), tenant: org)
+
+      assert %{success: 1} = Oban.drain_queue(queue: :weave_narrative)
+
+      case_record = Ash.load!(case_record, [:ai_narrative], tenant: org)
+
+      # The PO ref proves the journey snapshot reached the weaver; the control
+      # label identifies the finding as a conformance check, not a rule breach.
+      assert case_record.ai_narrative.summary =~ "PO5"
+      assert case_record.ai_narrative.summary =~ "Conformance"
+    end
+  end
+
   describe "graceful degradation when the Context Weaver fails" do
     test "a failed weave leaves the Case verdict — Violation and Hard Evidence — fully intact",
          %{org: org, connection: connection} do
@@ -117,6 +183,40 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
       # The verdict-bearing facts are untouched.
       assert case_record.violation.control_name == "Threshold Approval"
       assert case_record.hard_evidence.snapshot["id"] == "PO0042"
+
+      # The Case itself survives and is still listable.
+      assert [_one] = Compliance.list_cases!(tenant: org)
+    end
+
+    test "a failed weave leaves a Conformance Deviation Case verdict — deviation and Hard Evidence — fully intact",
+         %{org: org, connection: connection} do
+      Application.put_env(:bedrock, :context_weaver_stub, {:error, :llm_unavailable})
+      on_exit(fn -> Application.delete_env(:bedrock, :context_weaver_stub) end)
+
+      # The verdict is committed regardless of Layer 3: ingestion still succeeds.
+      assert {:ok, [case_record]} =
+               Compliance.ingest_events(connection, skipped_approval_journey(), tenant: org)
+
+      # Only the weave job is affected, and the failure is surfaced (logged).
+      log =
+        capture_log(fn ->
+          assert %{success: 0} = Oban.drain_queue(queue: :weave_narrative)
+        end)
+
+      assert log =~ "weave_narrative"
+
+      case_record =
+        Ash.load!(case_record, [:conformance_deviation, :hard_evidence, :ai_narrative],
+          tenant: org
+        )
+
+      # No narrative, and the Case is not marked as woven.
+      refute case_record.ai_narrative
+      refute case_record.narrative_woven_at
+
+      # The verdict-bearing facts are untouched.
+      assert case_record.conformance_deviation.kind == :skipped_step
+      assert case_record.hard_evidence.snapshot["po_ref"] == "PO5"
 
       # The Case itself survives and is still listable.
       assert [_one] = Compliance.list_cases!(tenant: org)

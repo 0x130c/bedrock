@@ -4,26 +4,31 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
   Weaver (Layer 3) and links it to the Case. Runs inside the async weave job, so
   any LLM failure fails only the job — the already-committed Case verdict is
   untouched.
+
+  Works for either finding that can open a Case (ADR-0004): a Rule `Violation`
+  names its Control, while a `ConformanceDeviation` is weaved under the P2P
+  Conformance check, with its deterministic reason as context.
   """
   use Ash.Resource.Change
 
   alias Bedrock.Compliance
   alias Bedrock.Compliance.ContextWeaver
 
+  @conformance_control_name "P2P Conformance"
+
   @impl true
   def change(changeset, _opts, _context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
       case_record =
-        Ash.load!(changeset.data, [:violation, :hard_evidence], tenant: changeset.tenant)
+        Ash.load!(changeset.data, [:violation, :conformance_deviation, :hard_evidence],
+          tenant: changeset.tenant
+        )
 
+      {control_name, reason} = finding(case_record)
       model = ContextWeaver.model()
 
       summary =
-        Compliance.summarize!(
-          case_record.violation.control_name,
-          case_record.violation.reason,
-          case_record.hard_evidence.snapshot
-        )
+        Compliance.summarize!(control_name, reason, case_record.hard_evidence.snapshot)
 
       changeset
       |> Ash.Changeset.force_change_attribute(:narrative_woven_at, DateTime.utc_now())
@@ -34,4 +39,12 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
       )
     end)
   end
+
+  # The Control name and deterministic reason that frame the narrative, taken from
+  # whichever finding opened the Case.
+  defp finding(%{violation: %{control_name: control_name, reason: reason}}),
+    do: {control_name, reason}
+
+  defp finding(%{conformance_deviation: %{reason: reason}}),
+    do: {@conformance_control_name, reason}
 end

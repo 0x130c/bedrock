@@ -105,6 +105,35 @@ defmodule Bedrock.Compliance.Controls.SplitPoTest do
       assert [] = SplitPo.findings(records, @opts)
     end
 
+    test "a chain of orders each within the window but spanning more than the window is not one window" do
+      # Three POs 48h apart: each adjacent pair is within the 72h window, but PO1→PO3
+      # spans 96h. With windows anchored on each window's *first* order, PO1+PO2 form one
+      # window (400M, under threshold) and PO3 opens a new window (alone) — no split.
+      # A sliding/chaining window would wrongly pool all three (600M) into one finding.
+      records = [
+        po(%{
+          id: "PO1",
+          vendor_id: "V1",
+          amount_total: 200_000_000,
+          order_date: ~U[2026-01-01 09:00:00Z]
+        }),
+        po(%{
+          id: "PO2",
+          vendor_id: "V1",
+          amount_total: 200_000_000,
+          order_date: ~U[2026-01-03 09:00:00Z]
+        }),
+        po(%{
+          id: "PO3",
+          vendor_id: "V1",
+          amount_total: 200_000_000,
+          order_date: ~U[2026-01-05 09:00:00Z]
+        })
+      ]
+
+      assert [] = SplitPo.findings(records, @opts)
+    end
+
     test "the offending vendor can be exempted" do
       records = [
         po(%{

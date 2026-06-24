@@ -311,4 +311,34 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
       assert [_one] = Compliance.list_cases!(tenant: org)
     end
   end
+
+  describe "weaving a Case that carries no typed finding" do
+    test "weaves from Hard Evidence instead of crashing", %{org: org} do
+      Application.put_env(:bedrock, :context_weaver_stub, :echo)
+      on_exit(fn -> Application.delete_env(:bedrock, :context_weaver_stub) end)
+
+      # A Case with Hard Evidence but no Violation / ConformanceDeviation / Anomaly — a
+      # shape a future Case-open path could produce. Seeded directly to bypass the
+      # finding-required open actions. Weaving must degrade gracefully, not crash.
+      case_record =
+        Ash.Seed.seed!(Compliance.Case, %{title: "Bare case", status: :open}, tenant: org)
+
+      Ash.Seed.seed!(
+        Compliance.HardEvidence,
+        %{snapshot: %{"note" => "evidence without a typed finding"}, case_id: case_record.id},
+        tenant: org
+      )
+
+      case_record =
+        case_record
+        |> Ash.Changeset.for_update(:weave_narrative, %{}, tenant: org)
+        |> Ash.update!()
+
+      case_record = Ash.load!(case_record, [:ai_narrative], tenant: org)
+
+      assert case_record.ai_narrative
+      assert is_binary(case_record.ai_narrative.summary)
+      assert case_record.ai_narrative.summary != ""
+    end
+  end
 end

@@ -50,8 +50,12 @@ defmodule Bedrock.Compliance.Controls.SplitPo do
     |> Enum.sort_by(&Map.get(&1, :order_date), DateTime)
     |> Enum.reduce([], fn po, clusters ->
       case clusters do
-        [[anchor | _] = current | rest] ->
-          if within?(po, anchor, window_seconds) do
+        # `current` is built newest-first (prepend), so the window's *first* order — the
+        # fixed anchor every member is measured against — is its last element. Anchoring
+        # on the most-recent order instead would slide the window forward indefinitely,
+        # chaining ≤window-spaced orders into one cluster that spans far more than a window.
+        [current | rest] ->
+          if within?(po, List.last(current), window_seconds) do
             [[po | current] | rest]
           else
             [[po], current | rest]

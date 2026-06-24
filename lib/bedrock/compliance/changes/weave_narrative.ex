@@ -8,7 +8,9 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
   Works for any of the three findings that can open a Case (ADR-0004): a Rule
   `Violation` names its Control, a `ConformanceDeviation` is weaved under the P2P
   Conformance check, and a Layer-2 `Anomaly` is weaved as a candidate (never a
-  verdict) — each with its deterministic reason as context.
+  verdict) — each with its deterministic reason as context. A Case with Hard
+  Evidence but no typed finding still weaves, under a generic label, rather than
+  failing the job.
   """
   use Ash.Resource.Change
 
@@ -17,6 +19,8 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
 
   @conformance_control_name "P2P Conformance"
   @anomaly_control_name "Anomaly Detection (Layer 2)"
+  @generic_control_name "Compliance finding"
+  @generic_reason "No typed finding on this Case; narrative woven from Hard Evidence alone."
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -54,4 +58,10 @@ defmodule Bedrock.Compliance.Changes.WeaveNarrative do
 
   defp finding(%{anomaly: %{reason: reason}}),
     do: {@anomaly_control_name, reason}
+
+  # A Case with Hard Evidence but no typed finding (a shape a future Case-open path
+  # could produce) still gets a narrative woven from its evidence, under a generic
+  # label — degrade gracefully rather than crash the weave job with a FunctionClauseError.
+  defp finding(_case_record),
+    do: {@generic_control_name, @generic_reason}
 end

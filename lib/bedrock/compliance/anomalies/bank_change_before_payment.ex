@@ -52,13 +52,25 @@ defmodule Bedrock.Compliance.Anomalies.BankChangeBeforePayment do
 
   @impl true
   def finding(observation, score_result) do
-    %{vendor_id: vendor_id, diff: diff, window_hours: window_hours} = observation.evidence
+    %{
+      vendor_id: vendor_id,
+      diff: diff,
+      window_hours: window_hours,
+      changed_at: changed_at,
+      paid_at: paid_at
+    } =
+      observation.evidence
+
     longer_pct = round((1.0 - score_result.percentile) * 100)
 
     %{
       anomaly_type: @anomaly_type,
       score: score_result.score,
       entity_ref: vendor_id,
+      # A bounded Episode: this specific change→payment pair. Re-ingesting it reopens
+      # no second Case (ADR-0011).
+      finding_key:
+        "#{vendor_id}|#{DateTime.to_iso8601(changed_at)}|#{DateTime.to_iso8601(paid_at)}",
       subject: "Vendor #{vendor_id}",
       reason:
         "Anomaly candidate (not a verdict): vendor #{vendor_id}'s bank account changed from " <>

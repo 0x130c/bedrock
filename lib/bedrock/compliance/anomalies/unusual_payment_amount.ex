@@ -37,21 +37,29 @@ defmodule Bedrock.Compliance.Anomalies.UnusualPaymentAmount do
       %{
         entity_type: :vendor,
         entity_ref: vendor_id,
-        value: amount,
+        # The statistical core scores numbers; the normalized `Money` is reduced to
+        # its numeric amount for scoring while the Money stays in the evidence.
+        value: amount_value(amount),
         evidence: %{vendor_id: vendor_id, amount: amount, po_ref: Map.get(payment, :po_ref)}
       }
     end)
   end
 
+  defp amount_value(%Money{} = amount), do: amount |> Money.to_decimal() |> Decimal.to_float()
+  defp amount_value(amount) when is_number(amount), do: amount / 1
+
   @impl true
   def finding(observation, score_result) do
-    %{vendor_id: vendor_id, amount: amount} = observation.evidence
+    %{vendor_id: vendor_id, amount: amount, po_ref: po_ref} = observation.evidence
     smaller_pct = round(score_result.percentile * 100)
 
     %{
       anomaly_type: @anomaly_type,
       score: score_result.score,
       entity_ref: vendor_id,
+      # A bounded Episode: this specific oversized payment. Re-ingesting it reopens no
+      # second Case (ADR-0011).
+      finding_key: "#{vendor_id}|#{po_ref}|#{amount}",
       subject: "Vendor #{vendor_id}",
       reason:
         "Anomaly candidate (not a verdict): a payment of #{amount} to vendor #{vendor_id} is " <>
@@ -63,6 +71,9 @@ defmodule Bedrock.Compliance.Anomalies.UnusualPaymentAmount do
 
   defp payment?(record) do
     Map.get(record, :type) == :payment and not is_nil(Map.get(record, :vendor_id)) and
-      is_number(Map.get(record, :amount_total))
+      amount?(Map.get(record, :amount_total))
   end
+
+  defp amount?(%Money{}), do: true
+  defp amount?(amount), do: is_number(amount)
 end

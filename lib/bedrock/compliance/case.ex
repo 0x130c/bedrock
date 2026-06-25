@@ -40,7 +40,7 @@ defmodule Bedrock.Compliance.Case do
 
     create :open do
       description "Open a Case, creating its Violation and HardEvidence in one transaction."
-      accept [:title]
+      accept [:title, :finding_type, :finding_key]
 
       argument :violation, :map, allow_nil?: false
       argument :hard_evidence, :map, allow_nil?: false
@@ -51,7 +51,7 @@ defmodule Bedrock.Compliance.Case do
 
     create :open_conformance do
       description "Open a Case from a Conformance Deviation, creating it and its HardEvidence."
-      accept [:title]
+      accept [:title, :finding_type, :finding_key]
 
       argument :conformance_deviation, :map, allow_nil?: false
       argument :hard_evidence, :map, allow_nil?: false
@@ -62,7 +62,7 @@ defmodule Bedrock.Compliance.Case do
 
     create :open_anomaly do
       description "Open a Case from a Layer-2 Anomaly candidate, creating it and its HardEvidence."
-      accept [:title]
+      accept [:title, :finding_type, :finding_key]
 
       argument :anomaly, :map, allow_nil?: false
       argument :hard_evidence, :map, allow_nil?: false
@@ -91,6 +91,18 @@ defmodule Bedrock.Compliance.Case do
       public? true
     end
 
+    # The Episode identity a Case is deduplicated on (ADR-0011): `finding_type` is
+    # the owning finding source (a Control name), `finding_key` its deterministic,
+    # Episode-grained key. Re-ingesting the same facts resolves to the same pair, so
+    # the seam opens no second Case. Nil until a finding source supplies a key.
+    attribute :finding_type, :string do
+      public? false
+    end
+
+    attribute :finding_key, :string do
+      public? false
+    end
+
     attribute :status, :atom do
       constraints one_of: [:open, :resolved, :dismissed]
       default :open
@@ -113,5 +125,12 @@ defmodule Bedrock.Compliance.Case do
     has_one :anomaly, Bedrock.Compliance.Anomaly
     has_one :hard_evidence, Bedrock.Compliance.HardEvidence
     has_one :ai_narrative, Bedrock.Compliance.AINarrative
+  end
+
+  # A Case is unique on its Episode identity (ADR-0011): the DB backstop behind the
+  # seam's idempotent-open guard. Nil keys (a finding source without one) are
+  # distinct, so they never collide.
+  identities do
+    identity :unique_finding, [:finding_type, :finding_key]
   end
 end

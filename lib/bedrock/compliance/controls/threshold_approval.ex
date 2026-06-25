@@ -20,7 +20,16 @@ defmodule Bedrock.Compliance.Controls.ThresholdApproval do
     Enum.flat_map(records, fn record ->
       case evaluate(record, opts) do
         {:violation, reason} ->
-          [%{subject: "PO #{record[:id]}", evidence: record, reason: reason}]
+          # Episode-grained per Purchase Order: the same PO re-ingested reopens no
+          # second Case (ADR-0011).
+          [
+            %{
+              subject: "PO #{record[:id]}",
+              finding_key: to_string(record[:id]),
+              evidence: record,
+              reason: reason
+            }
+          ]
 
         :ok ->
           []
@@ -49,7 +58,15 @@ defmodule Bedrock.Compliance.Controls.ThresholdApproval do
     end
   end
 
-  defp over_threshold?(po, threshold), do: amount_total(po) > threshold
+  # Per-currency (ADR-0011): the PO total is a `Money`; the threshold is read in the
+  # PO's own currency, so no cross-currency conversion ever happens. A PO with no
+  # total cannot breach.
+  defp over_threshold?(po, threshold) do
+    case amount_total(po) do
+      nil -> false
+      amount -> Money.compare(amount, Money.new(amount.currency, threshold)) == :gt
+    end
+  end
 
   defp approved_by?(po, approver_role) do
     po
@@ -57,24 +74,14 @@ defmodule Bedrock.Compliance.Controls.ThresholdApproval do
     |> Enum.any?(fn approval -> Map.get(approval, :role) == approver_role end)
   end
 
-  defp amount_total(po), do: Map.get(po, :amount_total) || 0
+  defp amount_total(po), do: Map.get(po, :amount_total)
 
   defp reason(po, threshold, approver_role) do
+    amount = amount_total(po)
+
     "Control '#{@control_name}' breached: PO #{po[:id]} totaling " <>
-      "#{format_money(amount_total(po), po[:currency])} exceeds the " <>
-      "#{format_money(threshold, po[:currency])} approval threshold without a " <>
+      "#{Money.to_string!(amount)} exceeds the " <>
+      "#{Money.to_string!(Money.new(amount.currency, threshold))} approval threshold without a " <>
       "required #{approver_role} approval."
-  end
-
-  defp format_money(amount, currency) do
-    formatted = amount |> Integer.to_string() |> add_thousands_separators()
-    [formatted, currency] |> Enum.reject(&is_nil/1) |> Enum.join(" ")
-  end
-
-  defp add_thousands_separators(digits) do
-    digits
-    |> String.reverse()
-    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
-    |> String.reverse()
   end
 end

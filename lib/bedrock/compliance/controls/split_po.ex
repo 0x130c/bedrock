@@ -29,17 +29,29 @@ defmodule Bedrock.Compliance.Controls.SplitPo do
 
     records
     |> Enum.filter(&po?/1)
+    |> Enum.filter(&Map.get(&1, :amount_total))
     |> Enum.reject(fn po -> MapSet.member?(exempt, Map.get(po, :vendor_id)) end)
-    |> Enum.group_by(&Map.get(&1, :vendor_id))
-    |> Enum.flat_map(fn {vendor_id, orders} ->
+    # Per-currency (ADR-0011): cluster within a single currency, so a window's
+    # combined total is never summed across currencies.
+    |> Enum.group_by(fn po -> {Map.get(po, :vendor_id), currency(po)} end)
+    |> Enum.flat_map(fn {{vendor_id, _currency}, orders} ->
       orders
       |> windows(window_hours)
-      |> Enum.filter(fn cluster -> length(cluster) > 1 and combined(cluster) > threshold end)
+      |> Enum.filter(fn cluster ->
+        length(cluster) > 1 and over_threshold?(cluster, threshold)
+      end)
       |> Enum.map(fn cluster -> finding(vendor_id, cluster, threshold) end)
     end)
   end
 
   defp po?(record), do: Map.get(record, :type) == :purchase_order
+  defp currency(po), do: Map.get(po, :amount_total).currency
+
+  defp over_threshold?(cluster, threshold) do
+    Money.compare(combined(cluster), threshold_money(cluster, threshold)) == :gt
+  end
+
+  defp threshold_money(cluster, threshold), do: Money.new(currency(hd(cluster)), threshold)
 
   # Greedily partition a vendor's orders, sorted by date, into disjoint windows:
   # each window holds every order within `window_hours` of the window's first order.
@@ -73,7 +85,13 @@ defmodule Bedrock.Compliance.Controls.SplitPo do
     DateTime.diff(Map.get(po, :order_date), Map.get(anchor, :order_date)) <= window_seconds
   end
 
-  defp combined(orders), do: orders |> Enum.map(&(Map.get(&1, :amount_total) || 0)) |> Enum.sum()
+  defp combined(orders) do
+    orders |> Enum.map(&Map.get(&1, :amount_total)) |> Enum.reduce(&Money.add!(&2, &1))
+  end
+
+  # The window's anchor — its earliest order — buckets the cluster deterministically.
+  defp window_anchor(orders),
+    do: orders |> Enum.map(&Map.get(&1, :order_date)) |> Enum.min(DateTime)
 
   defp finding(vendor_id, orders, threshold) do
     ids = orders |> Enum.map(&Map.get(&1, :id)) |> Enum.join(", ")
@@ -81,10 +99,16 @@ defmodule Bedrock.Compliance.Controls.SplitPo do
 
     %{
       subject: "Vendor #{vendor_id}",
+      # Episode-grained per vendor + window: the cluster's anchor (its earliest
+      # order) buckets the window, so the same split attempt re-ingested reopens no
+      # second Case (ADR-0011).
+      finding_key: "#{vendor_id}|#{DateTime.to_unix(window_anchor(orders))}",
       evidence: %{vendor_id: vendor_id, orders: orders, combined_total: total},
       reason:
         "Control '#{@control_name}' breached: orders #{ids} to vendor #{vendor_id} " <>
-          "combine to #{total}, above the #{threshold} threshold, while each stays under it."
+          "combine to #{Money.to_string!(total)}, above the " <>
+          "#{Money.to_string!(threshold_money(orders, threshold))} threshold, while each " <>
+          "stays under it."
     }
   end
 end

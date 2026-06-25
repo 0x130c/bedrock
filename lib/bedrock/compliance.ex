@@ -44,6 +44,16 @@ defmodule Bedrock.Compliance do
     resource Bedrock.Compliance.Anomaly
     resource Bedrock.Compliance.HardEvidence
 
+    resource Bedrock.Compliance.QuarantineEntry do
+      define :create_quarantine_entry, action: :create
+      define :list_quarantine_entries, action: :read
+    end
+
+    resource Bedrock.Compliance.Event do
+      define :upsert_event, action: :upsert
+      define :list_events, action: :read
+    end
+
     # The canonical P2P Process state machine: never persisted, only its
     # transition table is read by the Conformance checker (ADR-0004).
     resource Bedrock.Compliance.Process

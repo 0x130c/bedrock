@@ -46,6 +46,9 @@ defmodule Bedrock.Compliance.Controls.DuplicateInvoice do
 
     %{
       subject: "Invoice #{invoice_number}",
+      # The duplicate key itself is the canonical fingerprint — the same colliding
+      # set re-ingested reopens no second Case (ADR-0011), independent of bill ids.
+      finding_key: match_on |> Enum.map_join("|", &to_string(Map.get(sample, &1))),
       evidence: %{matched_on: match_on, bills: bills},
       reason:
         "Control '#{@control_name}' breached: vendor bills #{ids} from vendor " <>

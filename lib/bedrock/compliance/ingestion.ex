@@ -22,7 +22,15 @@ defmodule Bedrock.Compliance.Ingestion do
   require Logger
 
   alias Bedrock.Compliance
-  alias Bedrock.Compliance.{AnomalyDetection, Conformance, Normalizer, ProcessInstance}
+
+  alias Bedrock.Compliance.{
+    AnomalyDetection,
+    Conformance,
+    EventHistory,
+    Normalizer,
+    ProcessInstance,
+    VendorBankChange
+  }
 
   alias Bedrock.Compliance.Controls.{
     DuplicateInvoice,
@@ -53,18 +61,26 @@ defmodule Bedrock.Compliance.Ingestion do
     {records, quarantined} = Normalizer.normalize(input.arguments.records)
     quarantine!(quarantined, tenant)
 
+    # Poll-only sourcing of the flagship trigger (ADR-0011): diff each polled
+    # `res.partner.bank` snapshot against its last-known value in the Event History
+    # and fold any synthesized `vendor_change` into the batch, so the bank-change
+    # anomaly fires on stock Odoo. Runs *before* the upsert, so the diff reads the
+    # prior value, not the one just polled.
+    records = records ++ VendorBankChange.synthesize(records, tenant)
+
     # Persist the validated batch into the tenant Event History, upserted-latest by
     # the semantic key (ADR-0011) — the substrate cross-batch correlation reads.
     persist_events!(records, tenant)
 
     violation_cases =
       for {control, opts} <- @controls,
-          finding <- control.findings(records, opts) do
+          window = replay_window(control, records, tenant),
+          finding <- control.findings(window, opts) do
         open_case!(control, finding, tenant)
       end
 
     warn_unmatched_events(records)
-    instances = reconstruct_process_instances!(records, tenant)
+    instances = reconstruct_process_instances!(conformance_window(records, tenant), tenant)
 
     conformance_cases =
       for instance <- instances,
@@ -84,8 +100,44 @@ defmodule Bedrock.Compliance.Ingestion do
     baselines = Compliance.list_baselines!(tenant: tenant)
 
     for detector <- AnomalyDetection.detectors(),
-        finding <- AnomalyDetection.anomalies(detector, records, baselines) do
+        window = replay_window(detector, records, tenant),
+        finding <- AnomalyDetection.anomalies(detector, window, baselines) do
       open_anomaly_case!(detector, finding, tenant)
+    end
+  end
+
+  # Replay a Control's or detector's cross-batch window from the Event History
+  # (ADR-0011): a module declaring a `correlation/0` spec is evaluated over its
+  # touched-entity window (the batch merged with the relevant recent history); one
+  # that needs only the records in hand (no `correlation/0`) sees the batch alone.
+  defp replay_window(module, records, tenant) do
+    if function_exported?(module, :correlation, 0) do
+      EventHistory.window(records, tenant, module.correlation())
+    else
+      records
+    end
+  end
+
+  # The P2P event types that name a Purchase Order and so reconstruct a journey.
+  @conformance_types [:purchase_order, :goods_receipt, :vendor_bill, :payment]
+
+  # Replay each touched PO's *complete* journey from the Event History (ADR-0011):
+  # reconstruction triggers on any event naming a `po_ref`, not on a PO record being
+  # present in the batch, so a late payment whose PO synced earlier is still attached
+  # and conformance-checked (#21). `:full` is entity-complete (capped at 12 months).
+  defp conformance_window(records, tenant) do
+    EventHistory.window(records, tenant, %{
+      types: @conformance_types,
+      key: &po_key/1,
+      lookback: :full
+    })
+  end
+
+  # The PO a record belongs to: a related event's `po_ref`, or a PO record's own id.
+  defp po_key(record) do
+    case Map.get(record, :po_ref) do
+      nil -> if Map.get(record, :type) == :purchase_order, do: Map.get(record, :id)
+      po_ref -> po_ref
     end
   end
 

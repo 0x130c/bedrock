@@ -31,6 +31,14 @@ defmodule Bedrock.Compliance.Anomalies.BankChangeBeforePayment do
   @impl true
   def relevant_direction, do: :low
 
+  # Cross-batch correlation (ADR-0011): a bank change and the payment it precedes
+  # almost always arrive in *different* polls (the normal window is 5–15 days), so
+  # the seam must replay both per vendor. The lookback is a generous cap — wider
+  # than any window worth suspecting, since a payment long after a change is normal.
+  @impl true
+  def correlation,
+    do: %{types: [:vendor_change, :payment], key: &Map.get(&1, :vendor_id), lookback: {180, :day}}
+
   @impl true
   def observations(records) do
     payments_by_vendor =

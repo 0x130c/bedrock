@@ -62,4 +62,15 @@ defmodule Bedrock.Compliance.AnomalyDetector do
 
   @doc "Build the candidate Anomaly finding for an observation that scored as an outlier."
   @callback finding(observation(), score_result()) :: anomaly_finding()
+
+  @doc """
+  The cross-batch correlation spec (ADR-0011) — the per-detector window the
+  ingestion seam replays from the Event History before scoring. A detector that
+  pairs events across batches (e.g. a bank change with a later payment) declares
+  the `{types, key, lookback}` it correlates over; a detector that scores one event
+  against a Baseline in isolation omits this callback and is fed only the batch.
+  """
+  @callback correlation() :: Bedrock.Compliance.EventHistory.spec()
+
+  @optional_callbacks correlation: 0
 end

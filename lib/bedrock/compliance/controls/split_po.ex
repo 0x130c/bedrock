@@ -21,6 +21,21 @@ defmodule Bedrock.Compliance.Controls.SplitPo do
   @impl true
   def control_name, do: @control_name
 
+  # Cross-batch correlation (ADR-0011): split-PO evasion is *temporal* — sub-threshold
+  # orders issued to one vendor over days. The seam replays each touched vendor's
+  # recent POs so halves landing in separate polls are clustered. The lookback equals
+  # the clustering window: an order farther back than that can never join a window
+  # anchored on a batch order.
+  @window_hours 72
+
+  @impl true
+  def correlation,
+    do: %{
+      types: [:purchase_order],
+      key: &Map.get(&1, :vendor_id),
+      lookback: {@window_hours, :hour}
+    }
+
   @impl true
   def findings(records, opts) do
     threshold = Keyword.fetch!(opts, :threshold)

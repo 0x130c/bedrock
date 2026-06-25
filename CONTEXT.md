@@ -91,6 +91,16 @@ Conformance Deviation, or an Anomaly. Bundles the Hard Evidence and the AI Narra
 and is resolved by a human.
 _Avoid_: ticket, alert, incident, ca cảnh báo (use Case), process instance (different thing)
 
+**Episode**:
+A single occurrence of a finding that one Case investigates and is deduplicated against, so
+re-reading the same underlying Events never opens a second Case for it. A *bounded* Episode is
+a one-time fact (a specific bank-change→payment pair, one duplicate-invoice set); a *live*
+Episode keeps accruing evidence until its process reaches a terminal state (a growing split-PO
+cluster, an in-flight Process Instance journey). A genuinely new occurrence is a new Episode
+(a new Case); a `dismissed` Episode stays suppressed, while a `confirmed` Episode that keeps
+producing evidence re-surfaces. See ADR-0011.
+_Avoid_: finding (the detection rule firing), case (the investigation record), incident
+
 **SOP**:
 The customer's documented standard operating procedure — the source material from
 which Compliance Rules are authored and the context the Context Weaver retrieves.
@@ -164,6 +174,31 @@ _Avoid_: tenant (use Organization), account, company (unqualified)
 A configured link to one Odoo instance: its URL, a dedicated read-only credential, and
 sync state. The unit Bedrock ingests from. An Organization may have several.
 _Avoid_: integration, datasource, link
+
+### Ingestion
+
+**Event** (Normalized Event):
+The atomic, normalized P2P fact ingested from a Connection — a Purchase Order, approval,
+Goods Receipt, Vendor Bill, Payment, or vendor field-change. The single unit every detection
+Layer consumes; its field contract (the types of amount/quantity/timestamp fields) is pinned
+once at the ingestion seam so every Control and detector reads one known shape. Reconstructed
+into a Process Instance and correlated across batches via the Event History.
+_Avoid_: record (unqualified), log line, transaction (unqualified)
+
+**Event History**:
+The tenant-scoped, retained corpus of normalized Events Bedrock keeps independent of Odoo —
+the substrate for cross-batch correlation and Process Instance reconstruction. It lets a
+detector pair a vendor's bank-account change with a later payment even when the two arrived
+in *different* Ingest Batches. Distinct from the Evidence Ledger (verdict-bearing Hard
+Evidence per Case) and from Odoo's own audit log.
+_Avoid_: event store (implementation flavour), event log, journal, evidence ledger (different thing), audit log (that is Odoo's)
+
+**Ingest Batch**:
+The set of Events handed to a single `ingest_events` call. Under the v1 poller one business
+process is naturally split across many batches, so detection must correlate *across* batches
+(cross-batch) against the Event History, not only within the batch in hand. One Odoo poll
+cycle produces one batch.
+_Avoid_: sync (that is the poll cycle that produces a batch), poll, payload
 
 ### Posture
 

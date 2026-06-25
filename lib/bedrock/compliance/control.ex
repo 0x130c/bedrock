@@ -38,4 +38,15 @@ defmodule Bedrock.Compliance.Control do
 
   @doc "Evaluate the activated Control over a batch of records, returning one finding per breach."
   @callback findings(records :: [normalized_record()], opts :: keyword()) :: [finding()]
+
+  @doc """
+  The cross-batch correlation spec (ADR-0011) — the per-Control window the ingestion
+  seam replays from the Event History before evaluating. A temporally-evasive Control
+  (e.g. split-PO, whose halves are issued days apart) declares the `{types, key,
+  lookback}` it correlates over; a Control that needs only the records in hand omits
+  this callback and is evaluated over the batch alone.
+  """
+  @callback correlation() :: Bedrock.Compliance.EventHistory.spec()
+
+  @optional_callbacks correlation: 0
 end

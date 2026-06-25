@@ -31,9 +31,18 @@ defmodule Bedrock.Compliance.Conformance do
   Walk `activities` (an ordered list of activity atoms) against the `Process`,
   returning the deviations in the order they occur (`[]` when the journey
   conforms).
+
+  Monotonic-safe (ADR-0011): only deviations stable under future appends are
+  emitted. Ordering and forbidden-step deviations (`:out_of_order`,
+  `:receive_after_pay`) are returned immediately — no later event can make a
+  backward step legal. An *omission* (`:skipped_step` — an activity that jumped a
+  missing prerequisite) is held back until the Process Instance reaches a *terminal*
+  state, because under the incremental poller the missing step may still arrive
+  out-of-order in a later batch; an in-flight journey is not yet evidence of an
+  omission. Nothing is ever retracted.
   """
   def check(activities) do
-    {deviations, _state} =
+    {deviations, final_state} =
       Enum.reduce(activities, {[], Process.initial_state()}, fn activity, {deviations, state} ->
         case Process.advance(state, activity) do
           {:ok, next_state} ->
@@ -45,8 +54,22 @@ defmodule Bedrock.Compliance.Conformance do
         end
       end)
 
-    Enum.reverse(deviations)
+    deviations
+    |> Enum.reverse()
+    |> monotonic_safe(final_state)
   end
+
+  # Omissions are only stable — never retractable by a future append — once the
+  # journey is terminal; until then, suppress them and keep only the ordering /
+  # forbidden-step deviations that no later event can legalize.
+  defp monotonic_safe(deviations, final_state) do
+    if terminal?(final_state), do: deviations, else: Enum.reject(deviations, &omission?/1)
+  end
+
+  defp terminal?(state), do: Process.rank(state) >= Process.rank(Process.final_state())
+
+  defp omission?(%{kind: :skipped_step}), do: true
+  defp omission?(_deviation), do: false
 
   defp classify(state, activity) do
     {:ok, from_state, _to_state} = Process.edge(activity)

@@ -2,10 +2,18 @@ defmodule Bedrock.Compliance.Controls.ThreeWayMatchTest do
   use ExUnit.Case, async: true
 
   alias Bedrock.Compliance.Controls.ThreeWayMatch
+  alias Bedrock.Compliance.Normalizer
 
-  defp po(attrs), do: Map.merge(%{type: :purchase_order}, attrs)
-  defp gr(attrs), do: Map.merge(%{type: :goods_receipt}, attrs)
-  defp bill(attrs), do: Map.merge(%{type: :vendor_bill}, attrs)
+  # Build records through the real normalizer, so the Control reads the coerced shape
+  # (`quantity` as `Decimal`, `unit_price` as `Money`) the ingestion seam feeds it.
+  defp po(attrs), do: normalize(%{type: :purchase_order}, attrs)
+  defp gr(attrs), do: normalize(%{type: :goods_receipt}, attrs)
+  defp bill(attrs), do: normalize(%{type: :vendor_bill}, attrs)
+
+  defp normalize(base, attrs) do
+    {[coerced], []} = Normalizer.normalize([Map.merge(base, attrs)])
+    coerced
+  end
 
   @opts [quantity_tolerance: 0, price_tolerance: 0]
 

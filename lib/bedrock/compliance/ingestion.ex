@@ -18,10 +18,11 @@ defmodule Bedrock.Compliance.Ingestion do
   """
   use Ash.Resource.Actions.Implementation
 
+  require Ash.Query
   require Logger
 
   alias Bedrock.Compliance
-  alias Bedrock.Compliance.{AnomalyDetection, Conformance, ProcessInstance}
+  alias Bedrock.Compliance.{AnomalyDetection, Conformance, Normalizer, ProcessInstance}
 
   alias Bedrock.Compliance.Controls.{
     DuplicateInvoice,
@@ -44,7 +45,17 @@ defmodule Bedrock.Compliance.Ingestion do
   @impl true
   def run(input, _opts, _context) do
     tenant = input.tenant
-    records = input.arguments.records
+
+    # First gate (ADR-0011): coerce/validate against the pinned field contract and
+    # pull malformed records out as a data-quality signal, so a single bad record
+    # never crashes the batch nor reaches a Control that would misjudge it. Every
+    # downstream phase reads only the validated subset.
+    {records, quarantined} = Normalizer.normalize(input.arguments.records)
+    quarantine!(quarantined, tenant)
+
+    # Persist the validated batch into the tenant Event History, upserted-latest by
+    # the semantic key (ADR-0011) — the substrate cross-batch correlation reads.
+    persist_events!(records, tenant)
 
     violation_cases =
       for {control, opts} <- @controls,
@@ -95,6 +106,31 @@ defmodule Bedrock.Compliance.Ingestion do
 
   defp activity_sequence(instance), do: Enum.map(instance.activities, & &1.activity)
 
+  # Upsert each keyable record into the Event History (poll/webhook of the same fact
+  # collapse to one Event). A record with no derivable semantic key is not retained
+  # here — it still flows through detection.
+  defp persist_events!(records, tenant) do
+    for record <- records, {:ok, key} <- [Normalizer.event_key(record)] do
+      Compliance.upsert_event!(
+        %{
+          natural_key: key,
+          event_type: to_string(Map.get(record, :type)),
+          payload: record,
+          occurred_at: Map.get(record, :occurred_at) || Map.get(record, :order_date)
+        },
+        tenant: tenant
+      )
+    end
+  end
+
+  # Persist each quarantined record as a visible, queryable data-quality signal
+  # (the rest of the batch already proceeded without it).
+  defp quarantine!(quarantined, tenant) do
+    for %{raw: raw, reason: reason} <- quarantined do
+      Compliance.create_quarantine_entry!(%{raw: raw, reason: reason}, tenant: tenant)
+    end
+  end
+
   # A P2P event that names no Purchase Order can't join any journey — surface it as
   # a data-quality signal instead of dropping it silently.
   defp warn_unmatched_events(records) do
@@ -115,10 +151,18 @@ defmodule Bedrock.Compliance.Ingestion do
   # snapshot of the offending journey — the same shape a Violation opens, with the
   # finding's "flow" sibling in place of a `Violation`.
   defp open_conformance_case!(instance, deviation, tenant) do
-    case_record =
+    finding_type = "Conformance Deviation"
+    # Episode-grained per PO + divergence kind + offending activity, so the same
+    # deviation re-ingested reopens no second Case while distinct deviations on one
+    # journey still each open (ADR-0011).
+    finding_key = "#{instance.po_ref}|#{deviation.kind}|#{deviation.activity}"
+
+    open_idempotent(finding_type, finding_key, tenant, fn ->
       Compliance.open_conformance_case!(
         %{
           title: "PO #{instance.po_ref} — Conformance deviation (#{deviation.kind})",
+          finding_type: finding_type,
+          finding_key: finding_key,
           conformance_deviation: %{
             kind: deviation.kind,
             reason: deviation.reason,
@@ -128,9 +172,7 @@ defmodule Bedrock.Compliance.Ingestion do
         },
         tenant: tenant
       )
-
-    enqueue_weave(case_record, tenant)
-    case_record
+    end)
   end
 
   defp journey_snapshot(instance, deviation) do
@@ -146,10 +188,15 @@ defmodule Bedrock.Compliance.Ingestion do
   # candidate-framed reason) and a HardEvidence snapshot — the same shape a
   # Violation opens, with the suspicion-bearing `Anomaly` in place of a `Violation`.
   defp open_anomaly_case!(detector, finding, tenant) do
-    case_record =
+    finding_type = "Anomaly: #{finding.anomaly_type}"
+    finding_key = Map.get(finding, :finding_key)
+
+    open_idempotent(finding_type, finding_key, tenant, fn ->
       Compliance.open_anomaly_case!(
         %{
           title: "#{finding.subject} — Anomaly (#{detector.detector_name()})",
+          finding_type: finding_type,
+          finding_key: finding_key,
           anomaly: %{
             anomaly_type: finding.anomaly_type,
             score: finding.score,
@@ -161,24 +208,49 @@ defmodule Bedrock.Compliance.Ingestion do
         },
         tenant: tenant
       )
-
-    enqueue_weave(case_record, tenant)
-    case_record
+    end)
   end
 
   defp open_case!(control, finding, tenant) do
-    case_record =
+    finding_type = control.control_name()
+    finding_key = Map.get(finding, :finding_key)
+
+    open_idempotent(finding_type, finding_key, tenant, fn ->
       Compliance.open_case!(
         %{
           title: "#{finding.subject} — #{control.control_name()}",
+          finding_type: finding_type,
+          finding_key: finding_key,
           violation: %{control_name: control.control_name(), reason: finding.reason},
           hard_evidence: %{snapshot: finding.evidence}
         },
         tenant: tenant
       )
+    end)
+  end
 
-    enqueue_weave(case_record, tenant)
-    case_record
+  # Idempotent open (ADR-0011): a Case is unique on its `{finding_type, finding_key}`
+  # Episode identity, so re-ingesting the same batch reopens nothing — and never
+  # re-enqueues a weave. A finding with no key cannot be deduplicated and always
+  # opens, preserving its prior single-batch behaviour.
+  defp open_idempotent(finding_type, finding_key, tenant, opener) do
+    case existing_case(finding_type, finding_key, tenant) do
+      nil ->
+        case_record = opener.()
+        enqueue_weave(case_record, tenant)
+        case_record
+
+      case_record ->
+        case_record
+    end
+  end
+
+  defp existing_case(_finding_type, nil, _tenant), do: nil
+
+  defp existing_case(finding_type, finding_key, tenant) do
+    Compliance.Case
+    |> Ash.Query.filter(finding_type == ^finding_type and finding_key == ^finding_key)
+    |> Ash.read_one!(tenant: tenant)
   end
 
   # Hand Layer 3 off to a background job: the verdict is already committed, so a

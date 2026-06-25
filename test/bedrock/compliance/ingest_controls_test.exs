@@ -106,7 +106,9 @@ defmodule Bedrock.Compliance.IngestControlsTest do
 
       assert case_record.violation.control_name == "Split PO"
       assert case_record.violation.reason =~ "V1"
-      assert case_record.hard_evidence.snapshot["combined_total"] == 600_000_000
+
+      assert case_record.hard_evidence.snapshot["combined_total"] ==
+               %{"amount" => "600000000", "currency" => "VND"}
     end
   end
 

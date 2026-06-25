@@ -19,10 +19,19 @@ defmodule Bedrock.Compliance.Control do
       breached (`Violation.reason`).
     * `:evidence` — a snapshot of the offending record(s) (`HardEvidence.snapshot`).
     * `:subject` — a short label for the offending object, used in the Case title.
+    * `:finding_key` — *optional* deterministic, Episode-grained key the Control
+      owns (e.g. `po_ref`), unique within this Control. Re-ingesting the same facts
+      yields the same key, so the seam opens no second `Case` for it (ADR-0011). A
+      finding without one cannot be deduplicated yet and always opens a Case.
   """
 
   @type normalized_record :: map()
-  @type finding :: %{reason: String.t(), evidence: map(), subject: String.t()}
+  @type finding :: %{
+          required(:reason) => String.t(),
+          required(:evidence) => map(),
+          required(:subject) => String.t(),
+          optional(:finding_key) => String.t()
+        }
 
   @doc "The human-readable name of this Control, used in Violation reasons and titles."
   @callback control_name() :: String.t()

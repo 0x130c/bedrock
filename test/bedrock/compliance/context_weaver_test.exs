@@ -93,7 +93,9 @@ defmodule Bedrock.Compliance.ContextWeaverTest do
       # weaving never overwrites or replaces the verdict-bearing facts.
       assert case_record.ai_narrative.id != case_record.hard_evidence.id
       assert case_record.hard_evidence.snapshot["id"] == "PO0042"
-      assert case_record.hard_evidence.snapshot["amount_total"] == 750_000_000
+
+      assert case_record.hard_evidence.snapshot["amount_total"] ==
+               %{"amount" => "750000000", "currency" => "VND"}
     end
 
     test "the narrative is woven from the Case's Hard Evidence", %{

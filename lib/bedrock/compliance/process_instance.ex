@@ -37,6 +37,11 @@ defmodule Bedrock.Compliance.ProcessInstance do
 
     create :create do
       primary? true
+      # A ProcessInstance is a `{po_ref}` projection, not an append-on-every-batch
+      # (ADR-0011): re-reconstructing the same PO refreshes its journey in place
+      # rather than opening a second row.
+      upsert? true
+      upsert_identity :unique_po_ref
       accept [:po_ref, :activities]
     end
   end
@@ -61,6 +66,10 @@ defmodule Bedrock.Compliance.ProcessInstance do
     end
 
     timestamps()
+  end
+
+  identities do
+    identity :unique_po_ref, [:po_ref]
   end
 
   @doc """

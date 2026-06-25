@@ -66,30 +66,51 @@ defmodule Bedrock.Compliance.Controls.ThreeWayMatch do
   defp quantity_mismatch(triad, tolerance) do
     received = sum_quantity(triad.goods_receipts)
     billed = sum_quantity(triad.vendor_bills)
+    gap = Decimal.abs(Decimal.sub(billed, received))
 
-    if abs(billed - received) > tolerance, do: [:quantity], else: []
+    if Decimal.compare(gap, Decimal.new(tolerance)) == :gt, do: [:quantity], else: []
   end
 
   defp price_mismatch(%{po: nil}, _tolerance), do: []
 
   defp price_mismatch(triad, tolerance) do
-    po_price = Map.get(triad.po, :unit_price) || 0
+    po_price = Map.get(triad.po, :unit_price)
 
     breached? =
       Enum.any?(triad.vendor_bills, fn bill ->
-        abs((Map.get(bill, :unit_price) || 0) - po_price) > tolerance
+        price_breached?(Map.get(bill, :unit_price), po_price, tolerance)
       end)
 
     if breached?, do: [:price], else: []
   end
 
+  # Per-currency (ADR-0011): unit prices are `Money`; the gap is compared against the
+  # tolerance read in the same currency. A missing price defaults to zero of the
+  # other's currency so a one-sided price still surfaces.
+  defp price_breached?(nil, nil, _tolerance), do: false
+
+  defp price_breached?(bill_price, po_price, tolerance) do
+    bill_price = bill_price || zero_like(po_price)
+    po_price = po_price || zero_like(bill_price)
+    gap = Money.abs(Money.sub!(bill_price, po_price))
+
+    Money.compare(gap, Money.new(bill_price.currency, tolerance)) == :gt
+  end
+
+  defp zero_like(%Money{currency: currency}), do: Money.new(currency, 0)
+
   defp sum_quantity(records) do
-    records |> Enum.map(&(Map.get(&1, :quantity) || 0)) |> Enum.sum()
+    records
+    |> Enum.map(&(Map.get(&1, :quantity) || Decimal.new(0)))
+    |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
   end
 
   defp finding(triad, mismatches) do
     %{
       subject: "PO #{triad.po_ref}",
+      # The breach is Episode-grained per Purchase Order: re-ingesting the same
+      # triad must reopen no second Case, so the PO reference is the finding_key.
+      finding_key: to_string(triad.po_ref),
       evidence: Map.put(triad, :mismatches, mismatches),
       reason:
         "Control '#{@control_name}' breached: PO #{triad.po_ref} fails the 3-way match on " <>

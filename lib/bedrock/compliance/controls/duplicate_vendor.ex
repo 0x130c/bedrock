@@ -50,6 +50,9 @@ defmodule Bedrock.Compliance.Controls.DuplicateVendor do
 
     %{
       subject: "Vendors #{ids}",
+      # The colliding vendor set is the canonical fingerprint — re-ingesting the same
+      # clone reopens no second Case (ADR-0011), independent of which key matched.
+      finding_key: vendor_ids(vendors) |> Enum.join(","),
       evidence: %{matched_on: key, value: value, vendors: vendors},
       reason:
         "Control '#{@control_name}' breached: vendors #{ids} share the same " <>

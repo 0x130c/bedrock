@@ -2,8 +2,14 @@ defmodule Bedrock.Compliance.Controls.SplitPoTest do
   use ExUnit.Case, async: true
 
   alias Bedrock.Compliance.Controls.SplitPo
+  alias Bedrock.Compliance.Normalizer
 
-  defp po(attrs), do: Map.merge(%{type: :purchase_order}, attrs)
+  # Build a PO through the real normalizer, so the Control under test reads the same
+  # coerced shape (`amount_total` as `Money`) the ingestion seam feeds it.
+  defp po(attrs) do
+    {[coerced], []} = Normalizer.normalize([Map.merge(%{type: :purchase_order}, attrs)])
+    coerced
+  end
 
   @opts [threshold: 500_000_000, window_hours: 72]
 
@@ -32,7 +38,7 @@ defmodule Bedrock.Compliance.Controls.SplitPoTest do
       assert finding.reason =~ "PO2"
 
       assert MapSet.new(Enum.map(finding.evidence.orders, & &1.id)) == MapSet.new(["PO1", "PO2"])
-      assert finding.evidence.combined_total == 600_000_000
+      assert finding.evidence.combined_total == Money.new(:VND, 600_000_000)
     end
 
     test "sub-threshold POs spread beyond the window are not a split" do

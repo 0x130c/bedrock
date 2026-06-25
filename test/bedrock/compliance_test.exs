@@ -38,7 +38,11 @@ defmodule Bedrock.ComplianceTest do
       assert case_record.violation.reason =~ "PO0042"
       assert case_record.violation.reason =~ "CFO"
       assert case_record.hard_evidence.snapshot["id"] == "PO0042"
-      assert case_record.hard_evidence.snapshot["amount_total"] == 750_000_000
+
+      # The seam pins monetary fields to Money (ADR-0011), so Hard Evidence carries
+      # the per-currency amount, not a bare integer.
+      assert case_record.hard_evidence.snapshot["amount_total"] ==
+               %{"amount" => "750000000", "currency" => "VND"}
     end
 
     test "a batch of only compliant POs opens no Cases", %{org: org, connection: connection} do

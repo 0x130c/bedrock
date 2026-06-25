@@ -12,12 +12,14 @@ defmodule Bedrock.Compliance.Backfill do
   use Ash.Resource.Actions.Implementation
 
   alias Bedrock.Compliance
-  alias Bedrock.Compliance.AnomalyDetection
+  alias Bedrock.Compliance.{AnomalyDetection, Normalizer}
 
   @impl true
   def run(input, _opts, _context) do
     tenant = input.tenant
-    records = input.arguments.records
+    # Same field contract as live ingest (ADR-0011): seed Baselines from the coerced
+    # shape so a metric learned at backfill matches the one scored at ingest.
+    {records, _quarantined} = Normalizer.normalize(input.arguments.records)
 
     baselines =
       for detector <- AnomalyDetection.detectors(),

@@ -22,7 +22,7 @@ defmodule Bedrock.Compliance.Organization do
     defaults [:read, :destroy]
 
     create :create do
-      accept [:name]
+      accept [:name, :materiality_floor]
     end
   end
 
@@ -31,6 +31,15 @@ defmodule Bedrock.Compliance.Organization do
 
     attribute :name, :string do
       allow_nil? false
+      public? true
+    end
+
+    # The money-at-risk threshold below which a finding never promotes to an Alert
+    # (it still opens a Case). One input to the promotion gate (ADR-0010). Defaults
+    # to a small floor so material findings promote out of the box.
+    attribute :materiality_floor, :money do
+      allow_nil? false
+      default fn -> Money.new(:VND, 10_000_000) end
       public? true
     end
 

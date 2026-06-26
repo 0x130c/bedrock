@@ -61,6 +61,9 @@ defmodule Bedrock.Compliance.Anomalies.UnusualPaymentAmount do
       # second Case (ADR-0011).
       finding_key: "#{vendor_id}|#{po_ref}|#{amount}",
       subject: "Vendor #{vendor_id}",
+      # The oversized payment itself is the money at risk the gate weighs against the
+      # Materiality Floor (ADR-0010).
+      money_at_risk: amount,
       reason:
         "Anomaly candidate (not a verdict): a payment of #{amount} to vendor #{vendor_id} is " <>
           "unusually large — larger than #{smaller_pct}% of its normal payments. " <>

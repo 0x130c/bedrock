@@ -14,6 +14,10 @@ config :bedrock, Oban, testing: :manual
 # The Context Weaver (Layer 3) uses a deterministic fake LLM in tests — no real
 # calls. Per-test behavior is steered via `:context_weaver_stub`.
 config :bedrock, :context_weaver_llm, Bedrock.Test.ContextWeaverStub
+
+# Alerts are delivered through a recording adapter in tests — never a real
+# Slack / Telegram / SMS / webhook call (ADR-0010).
+config :bedrock, :alert_delivery, Bedrock.Test.RecordingAlertAdapter
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 
 # Configure your database

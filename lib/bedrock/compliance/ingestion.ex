@@ -25,10 +25,14 @@ defmodule Bedrock.Compliance.Ingestion do
 
   alias Bedrock.Compliance.{
     AnomalyDetection,
+    AlertDelivery,
+    AlertPrecision,
     Conformance,
     EventHistory,
     Normalizer,
+    Organization,
     ProcessInstance,
+    PromotionGate,
     VendorBankChange
   }
 
@@ -209,12 +213,13 @@ defmodule Bedrock.Compliance.Ingestion do
     # journey still each open (ADR-0011).
     finding_key = "#{instance.po_ref}|#{deviation.kind}|#{deviation.activity}"
 
-    open_idempotent(finding_type, finding_key, tenant, fn ->
+    open_idempotent(finding_type, finding_key, tenant, nil, fn ->
       Compliance.open_conformance_case!(
         %{
           title: "PO #{instance.po_ref} — Conformance deviation (#{deviation.kind})",
           finding_type: finding_type,
           finding_key: finding_key,
+          subject: "PO #{instance.po_ref}",
           conformance_deviation: %{
             kind: deviation.kind,
             reason: deviation.reason,
@@ -243,12 +248,26 @@ defmodule Bedrock.Compliance.Ingestion do
     finding_type = "Anomaly: #{finding.anomaly_type}"
     finding_key = Map.get(finding, :finding_key)
 
-    open_idempotent(finding_type, finding_key, tenant, fn ->
+    # The promotion gate context for this Anomaly (ADR-0010): its signal is the
+    # Anomaly Score (it carries no deterministic Severity), and it only alerts once
+    # the Baseline behind that score is mature enough to trust.
+    gate_ctx = %{
+      control_name: finding_type,
+      severity: nil,
+      anomaly_score: finding.score,
+      money_at_risk: Map.get(finding, :money_at_risk),
+      subject: finding.subject,
+      baseline_mature?:
+        Map.get(finding, :baseline_count, 0) >= PromotionGate.mature_baseline_count()
+    }
+
+    open_idempotent(finding_type, finding_key, tenant, gate_ctx, fn ->
       Compliance.open_anomaly_case!(
         %{
           title: "#{finding.subject} — Anomaly (#{detector.detector_name()})",
           finding_type: finding_type,
           finding_key: finding_key,
+          subject: finding.subject,
           anomaly: %{
             anomaly_type: finding.anomaly_type,
             score: finding.score,
@@ -267,12 +286,25 @@ defmodule Bedrock.Compliance.Ingestion do
     finding_type = control.control_name()
     finding_key = Map.get(finding, :finding_key)
 
-    open_idempotent(finding_type, finding_key, tenant, fn ->
+    # The promotion gate context for this Violation (ADR-0010): its deterministic
+    # Severity is the Control's criticality and its money-at-risk rides on the
+    # finding. A deterministic finding needs no learned Baseline, so it is mature.
+    gate_ctx = %{
+      control_name: finding_type,
+      severity: control.criticality(),
+      anomaly_score: nil,
+      money_at_risk: Map.get(finding, :money_at_risk),
+      subject: finding.subject,
+      baseline_mature?: true
+    }
+
+    open_idempotent(finding_type, finding_key, tenant, gate_ctx, fn ->
       Compliance.open_case!(
         %{
           title: "#{finding.subject} — #{control.control_name()}",
           finding_type: finding_type,
           finding_key: finding_key,
+          subject: finding.subject,
           violation: %{control_name: control.control_name(), reason: finding.reason},
           hard_evidence: %{snapshot: finding.evidence}
         },
@@ -283,19 +315,102 @@ defmodule Bedrock.Compliance.Ingestion do
 
   # Idempotent open (ADR-0011): a Case is unique on its `{finding_type, finding_key}`
   # Episode identity, so re-ingesting the same batch reopens nothing — and never
-  # re-enqueues a weave. A finding with no key cannot be deduplicated and always
-  # opens, preserving its prior single-batch behaviour.
-  defp open_idempotent(finding_type, finding_key, tenant, opener) do
+  # re-enqueues a weave nor re-promotes. A finding with no key cannot be deduplicated
+  # and always opens, preserving its prior single-batch behaviour.
+  #
+  # Promotion to an Alert (ADR-0010) runs only on a *fresh* open, beside the weave
+  # enqueue, so the precision channel fires once per Episode. `gate_ctx` is `nil`
+  # for finding sources whose promotion path is not yet wired.
+  defp open_idempotent(finding_type, finding_key, tenant, gate_ctx, opener) do
     case existing_case(finding_type, finding_key, tenant) do
       nil ->
         case_record = opener.()
         enqueue_weave(case_record, tenant)
+        maybe_promote(case_record, gate_ctx, tenant)
         case_record
 
       case_record ->
         case_record
     end
   end
+
+  # Run the promotion gate (ADR-0010) for a freshly-opened Case and, if it clears,
+  # emit an `Alert` pointing at it. A Case-only outcome is the common case — the
+  # recall channel already holds the finding.
+  defp maybe_promote(_case_record, nil, _tenant), do: :ok
+
+  defp maybe_promote(case_record, gate_ctx, tenant) do
+    decision =
+      PromotionGate.decision(%{
+        severity: gate_ctx.severity,
+        anomaly_score: gate_ctx.anomaly_score,
+        money_at_risk: gate_ctx.money_at_risk,
+        materiality_floor: materiality_floor(tenant),
+        suppressed?: suppressed?(gate_ctx, tenant),
+        baseline_mature?: gate_ctx.baseline_mature?,
+        demoted?: demoted?(gate_ctx, tenant)
+      })
+
+    case decision do
+      :promote ->
+        %{
+          case_id: case_record.id,
+          severity: gate_ctx.severity,
+          anomaly_score: gate_ctx.anomaly_score,
+          money_at_risk: gate_ctx.money_at_risk
+        }
+        |> Compliance.promote_alert!(tenant: tenant)
+        |> deliver_alert(tenant)
+
+        :ok
+
+      {:case_only, _reason} ->
+        :ok
+    end
+  end
+
+  # Hand the Alert to the swappable delivery port (ADR-0002) and record success. A
+  # failed delivery leaves the Alert pending — the recall channel already holds the
+  # Case, so the precision channel never blocks or alters the verdict.
+  defp deliver_alert(alert, tenant) do
+    case AlertDelivery.deliver(alert) do
+      {:ok, _info} -> Compliance.mark_alert_delivered!(alert, tenant: tenant)
+      {:error, _reason} -> alert
+    end
+  end
+
+  # The tenant's Materiality Floor (ADR-0010). Read off the Organization passed as
+  # the tenant; falls back to its id (a `"org_<id>"` tenant string) or a default.
+  defp materiality_floor(%Organization{materiality_floor: floor}) when not is_nil(floor),
+    do: floor
+
+  defp materiality_floor("org_" <> id) do
+    case Compliance.get_organization(id) do
+      {:ok, %Organization{materiality_floor: floor}} when not is_nil(floor) -> floor
+      _ -> default_materiality_floor()
+    end
+  end
+
+  defp materiality_floor(_tenant), do: default_materiality_floor()
+
+  defp default_materiality_floor, do: Money.new(:VND, 10_000_000)
+
+  # A finding is suppressed when a Suppression Rule is in force for its
+  # `{control_name, subject}` (ADR-0010) — a known-good pattern marked as expected.
+  defp suppressed?(%{control_name: control_name, subject: subject}, tenant)
+       when is_binary(control_name) and is_binary(subject) do
+    Compliance.matching_suppression_rules!(control_name, subject, tenant: tenant) != []
+  end
+
+  defp suppressed?(_gate_ctx, _tenant), do: false
+
+  # A Control auto-demoted to Case-only (ADR-0010) no longer promotes, however
+  # strong the finding — no single noisy Control may train Auditors to ignore Alerts.
+  defp demoted?(%{control_name: control_name}, tenant) when is_binary(control_name) do
+    AlertPrecision.demoted?(control_name, tenant)
+  end
+
+  defp demoted?(_gate_ctx, _tenant), do: false
 
   defp existing_case(_finding_type, nil, _tenant), do: nil
 

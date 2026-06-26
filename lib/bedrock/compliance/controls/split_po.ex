@@ -21,6 +21,11 @@ defmodule Bedrock.Compliance.Controls.SplitPo do
   @impl true
   def control_name, do: @control_name
 
+  # Deliberate threshold evasion is a critical breach — eligible for the Alert
+  # precision channel (ADR-0010).
+  @impl true
+  def criticality, do: :critical
+
   # Cross-batch correlation (ADR-0011): split-PO evasion is *temporal* — sub-threshold
   # orders issued to one vendor over days. The seam replays each touched vendor's
   # recent POs so halves landing in separate polls are clustered. The lookback equals
@@ -119,6 +124,9 @@ defmodule Bedrock.Compliance.Controls.SplitPo do
       # second Case (ADR-0011).
       finding_key: "#{vendor_id}|#{DateTime.to_unix(window_anchor(orders))}",
       evidence: %{vendor_id: vendor_id, orders: orders, combined_total: total},
+      # The split purchase's combined total is the money at risk the gate weighs
+      # against the Materiality Floor (ADR-0010).
+      money_at_risk: total,
       reason:
         "Control '#{@control_name}' breached: orders #{ids} to vendor #{vendor_id} " <>
           "combine to #{Money.to_string!(total)}, above the " <>

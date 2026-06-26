@@ -70,7 +70,10 @@ defmodule Bedrock.Compliance.AnomalyDetection do
         result = score(to_summary(baseline), observation.value),
         result.score >= threshold,
         relevant?(detector.relevant_direction(), result.direction) do
-      detector.finding(observation, result)
+      # Carry the Baseline's sample count onto the candidate so the promotion gate
+      # (ADR-0010) can require a *mature* Baseline before alerting, without the
+      # detector needing to know about the precision channel.
+      detector.finding(observation, result) |> Map.put(:baseline_count, baseline.count)
     end
   end
 

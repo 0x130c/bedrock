@@ -15,6 +15,11 @@ defmodule Bedrock.Compliance.Controls.ThresholdApproval do
   @impl true
   def control_name, do: @control_name
 
+  # A large unapproved spend is the flagship critical breach — eligible for the
+  # Alert precision channel (ADR-0010).
+  @impl true
+  def criticality, do: :critical
+
   @impl true
   def findings(records, opts) do
     Enum.flat_map(records, fn record ->
@@ -27,7 +32,10 @@ defmodule Bedrock.Compliance.Controls.ThresholdApproval do
               subject: "PO #{record[:id]}",
               finding_key: to_string(record[:id]),
               evidence: record,
-              reason: reason
+              reason: reason,
+              # The unapproved PO total is the money at risk the gate weighs against
+              # the Materiality Floor (ADR-0010).
+              money_at_risk: amount_total(record)
             }
           ]
 

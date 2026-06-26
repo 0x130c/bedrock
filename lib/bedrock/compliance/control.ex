@@ -36,6 +36,14 @@ defmodule Bedrock.Compliance.Control do
   @doc "The human-readable name of this Control, used in Violation reasons and titles."
   @callback control_name() :: String.t()
 
+  @doc """
+  The Control's deterministic Severity band — its rule criticality (CONTEXT.md),
+  one input to the Alert promotion gate (ADR-0010). A breach of a `:critical`
+  Control is eligible for the precision channel; lower bands stay Case-only unless
+  a future money-at-risk escalation lifts them.
+  """
+  @callback criticality() :: Bedrock.Compliance.Severity.t()
+
   @doc "Evaluate the activated Control over a batch of records, returning one finding per breach."
   @callback findings(records :: [normalized_record()], opts :: keyword()) :: [finding()]
 

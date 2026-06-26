@@ -26,6 +26,9 @@ defmodule Bedrock.Compliance.Controls.ThreeWayMatch do
   def control_name, do: @control_name
 
   @impl true
+  def criticality, do: :high
+
+  @impl true
   def findings(records, opts) do
     quantity_tolerance = Keyword.get(opts, :quantity_tolerance, 0)
     price_tolerance = Keyword.get(opts, :price_tolerance, 0)

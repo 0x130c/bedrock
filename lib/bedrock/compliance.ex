@@ -53,6 +53,25 @@ defmodule Bedrock.Compliance do
     resource Bedrock.Compliance.HardEvidence
     resource Bedrock.Compliance.Attestation
 
+    resource Bedrock.Compliance.Alert do
+      define :promote_alert, action: :promote
+      define :mark_alert_delivered, action: :mark_delivered
+      define :list_alerts, action: :read
+      define :get_alert, action: :read, get_by: [:id]
+    end
+
+    resource Bedrock.Compliance.SuppressionRule do
+      define :create_suppression_rule, action: :create
+      define :list_suppression_rules, action: :read
+      define :matching_suppression_rules, action: :matching, args: [:control_name, :subject]
+    end
+
+    resource Bedrock.Compliance.ControlAlertStat do
+      define :upsert_control_alert_stat, action: :upsert
+      define :list_control_alert_stats, action: :read
+      define :get_control_alert_stat, action: :read, get_by: [:control_name]
+    end
+
     resource Bedrock.Compliance.QuarantineEntry do
       define :create_quarantine_entry, action: :create
       define :list_quarantine_entries, action: :read

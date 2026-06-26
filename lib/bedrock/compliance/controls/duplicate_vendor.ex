@@ -21,6 +21,9 @@ defmodule Bedrock.Compliance.Controls.DuplicateVendor do
   def control_name, do: @control_name
 
   @impl true
+  def criticality, do: :high
+
+  @impl true
   def findings(records, opts) do
     match_on = Keyword.get(opts, :match_on, @default_match_on)
     exempt = MapSet.new(Keyword.get(opts, :exempt_vendors, []))

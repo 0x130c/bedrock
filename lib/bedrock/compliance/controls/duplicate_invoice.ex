@@ -21,6 +21,9 @@ defmodule Bedrock.Compliance.Controls.DuplicateInvoice do
   def control_name, do: @control_name
 
   @impl true
+  def criticality, do: :high
+
+  @impl true
   def findings(records, opts) do
     match_on = Keyword.get(opts, :match_on, @default_match_on)
     exempt = MapSet.new(Keyword.get(opts, :exempt_vendors, []))
@@ -50,6 +53,8 @@ defmodule Bedrock.Compliance.Controls.DuplicateInvoice do
       # set re-ingested reopens no second Case (ADR-0011), independent of bill ids.
       finding_key: match_on |> Enum.map_join("|", &to_string(Map.get(sample, &1))),
       evidence: %{matched_on: match_on, bills: bills},
+      # The duplicated bill total is the money at risk — one extra payment (ADR-0010).
+      money_at_risk: Map.get(sample, :amount_total),
       reason:
         "Control '#{@control_name}' breached: vendor bills #{ids} from vendor " <>
           "#{vendor_id} share invoice number #{invoice_number}."

@@ -67,7 +67,7 @@ defmodule Bedrock.Compliance.Case do
 
     create :open do
       description "Open a Case, creating its Violation and HardEvidence in one transaction."
-      accept [:title, :finding_type, :finding_key]
+      accept [:title, :finding_type, :finding_key, :subject]
 
       argument :violation, :map, allow_nil?: false
       argument :hard_evidence, :map, allow_nil?: false
@@ -78,7 +78,7 @@ defmodule Bedrock.Compliance.Case do
 
     create :open_conformance do
       description "Open a Case from a Conformance Deviation, creating it and its HardEvidence."
-      accept [:title, :finding_type, :finding_key]
+      accept [:title, :finding_type, :finding_key, :subject]
 
       argument :conformance_deviation, :map, allow_nil?: false
       argument :hard_evidence, :map, allow_nil?: false
@@ -89,7 +89,7 @@ defmodule Bedrock.Compliance.Case do
 
     create :open_anomaly do
       description "Open a Case from a Layer-2 Anomaly candidate, creating it and its HardEvidence."
-      accept [:title, :finding_type, :finding_key]
+      accept [:title, :finding_type, :finding_key, :subject]
 
       argument :anomaly, :map, allow_nil?: false
       argument :hard_evidence, :map, allow_nil?: false
@@ -117,20 +117,35 @@ defmodule Bedrock.Compliance.Case do
 
     update :confirm do
       description "Confirm the finding behind an investigating Case as a real issue."
+      require_atomic? false
+
       change transition_state(:confirmed)
+      change Bedrock.Compliance.Changes.TrackAlertOutcome
     end
 
     update :accept_risk do
       description "Acknowledge the finding but accept the risk rather than acting on it."
+      require_atomic? false
+
       change transition_state(:accepted_risk)
+      change Bedrock.Compliance.Changes.TrackAlertOutcome
     end
 
     update :dismiss do
       description "Dismiss an investigating Case as not a real issue, recording why."
+      require_atomic? false
+
       argument :reason, :string, allow_nil?: false
+
+      # When the Auditor dismisses a Case as a known-good, expected pattern, feed a
+      # Suppression Rule so matching findings stop alerting (ADR-0010). Ordinary
+      # dismissals (the default) leave the precision channel untouched.
+      argument :suppress?, :boolean, allow_nil?: false, default: false
 
       change set_attribute(:dismissal_reason, arg(:reason))
       change transition_state(:dismissed)
+      change Bedrock.Compliance.Changes.FeedSuppressionRule
+      change Bedrock.Compliance.Changes.TrackAlertOutcome
     end
 
     update :close do
@@ -171,6 +186,13 @@ defmodule Bedrock.Compliance.Case do
       public? false
     end
 
+    # The finding subject — the short label of the offending object (e.g. "Vendor V1",
+    # "PO 42"), carried from the finding. Scopes a Suppression Rule fed from this Case
+    # when it is dismissed as known-good (ADR-0010).
+    attribute :subject, :string do
+      public? true
+    end
+
     # `:status` is the state-machine attribute, declared by the `state_machine`
     # block above with the full set of lifecycle states as its constraint.
 
@@ -196,6 +218,7 @@ defmodule Bedrock.Compliance.Case do
     has_one :hard_evidence, Bedrock.Compliance.HardEvidence
     has_one :ai_narrative, Bedrock.Compliance.AINarrative
     has_one :attestation, Bedrock.Compliance.Attestation
+    has_one :alert, Bedrock.Compliance.Alert
   end
 
   # A Case is unique on its Episode identity (ADR-0011): the DB backstop behind the

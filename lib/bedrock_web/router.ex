@@ -54,6 +54,19 @@ defmodule BedrockWeb.Router do
     end
   end
 
+  # The Auditor workbench. Scoped to one Organization (tenant) by `:org_id` in the
+  # path (ADR-0007: schema-per-tenant); the User↔Organization mapping is a separate
+  # concern. Requires an authenticated Auditor.
+  scope "/orgs/:org_id", BedrockWeb do
+    pipe_through :browser
+
+    ash_authentication_live_session :auditor_workbench,
+      on_mount: [{BedrockWeb.LiveUserAuth, :live_user_required}] do
+      live "/cases", CaseLive.Index, :index
+      live "/cases/:id", CaseLive.Show, :show
+    end
+  end
+
   scope "/", BedrockWeb do
     pipe_through :browser
 

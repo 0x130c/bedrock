@@ -37,12 +37,21 @@ defmodule Bedrock.Compliance do
       define :open_conformance_case, action: :open_conformance
       define :open_anomaly_case, action: :open_anomaly
       define :list_cases, action: :read
+      define :get_case, action: :read, get_by: [:id]
+      define :triage_case, action: :triage
+      define :investigate_case, action: :investigate
+      define :confirm_case, action: :confirm
+      define :accept_risk_case, action: :accept_risk
+      define :dismiss_case, action: :dismiss
+      define :close_case, action: :close
+      define :export_case, action: :export
     end
 
     resource Bedrock.Compliance.Violation
     resource Bedrock.Compliance.ConformanceDeviation
     resource Bedrock.Compliance.Anomaly
     resource Bedrock.Compliance.HardEvidence
+    resource Bedrock.Compliance.Attestation
 
     resource Bedrock.Compliance.QuarantineEntry do
       define :create_quarantine_entry, action: :create

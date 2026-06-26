@@ -1,17 +1,22 @@
 defmodule Bedrock.Compliance.Case do
   @moduledoc """
   The investigation record a human Auditor works on. Opened by a finding and
-  bundles the `Violation` with the `HardEvidence` behind it. Tenant-scoped.
+  bundles the `Violation`, `HardEvidence`, and AI Narrative behind it. Tenant-scoped.
 
-  In Slice 1 a Case is opened by exactly one `Violation` and carries one
-  `HardEvidence` snapshot; richer lifecycle (status transitions, attestation)
-  arrives in later slices.
+  Its lifecycle is an `ash_state_machine` (ADR-0008):
+
+      open → triaged → investigating → (confirmed | dismissed | accepted_risk)
+           → closed → exported
+
+  `dismiss` records a reason (feeds Suppression Rules, ADR-0010) and `close` records
+  the Auditor's identity-bound `Attestation` (ADR-0009) — closing without an actor is
+  rejected.
   """
   use Ash.Resource,
     otp_app: :bedrock,
     domain: Bedrock.Compliance,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshOban]
+    extensions: [AshOban, AshStateMachine]
 
   postgres do
     table "cases"
@@ -32,6 +37,28 @@ defmodule Bedrock.Compliance.Case do
         max_attempts 1
         worker_module_name Bedrock.Compliance.Case.AshOban.Worker.WeaveNarrative
       end
+    end
+  end
+
+  # The Case lifecycle (ADR-0008). A Case is opened by a finding, triaged, then
+  # investigated, and resolved into exactly one of three decisions before it is
+  # closed (recording an Attestation, ADR-0009) and finally exported.
+  #
+  #   open → triaged → investigating → (confirmed | dismissed | accepted_risk)
+  #        → closed → exported
+  state_machine do
+    initial_states [:open]
+    default_initial_state :open
+    state_attribute :status
+
+    transitions do
+      transition :triage, from: :open, to: :triaged
+      transition :investigate, from: :triaged, to: :investigating
+      transition :confirm, from: :investigating, to: :confirmed
+      transition :accept_risk, from: :investigating, to: :accepted_risk
+      transition :dismiss, from: :investigating, to: :dismissed
+      transition :close, from: [:confirmed, :dismissed, :accepted_risk], to: :closed
+      transition :export, from: :closed, to: :exported
     end
   end
 
@@ -77,6 +104,47 @@ defmodule Bedrock.Compliance.Case do
 
       change Bedrock.Compliance.Changes.WeaveNarrative
     end
+
+    update :triage do
+      description "Move an open Case into the Triage Queue for review."
+      change transition_state(:triaged)
+    end
+
+    update :investigate do
+      description "Begin investigating a triaged Case."
+      change transition_state(:investigating)
+    end
+
+    update :confirm do
+      description "Confirm the finding behind an investigating Case as a real issue."
+      change transition_state(:confirmed)
+    end
+
+    update :accept_risk do
+      description "Acknowledge the finding but accept the risk rather than acting on it."
+      change transition_state(:accepted_risk)
+    end
+
+    update :dismiss do
+      description "Dismiss an investigating Case as not a real issue, recording why."
+      argument :reason, :string, allow_nil?: false
+
+      change set_attribute(:dismissal_reason, arg(:reason))
+      change transition_state(:dismissed)
+    end
+
+    update :close do
+      description "Close a resolved Case, recording the Auditor's Attestation (ADR-0009)."
+      require_atomic? false
+
+      change Bedrock.Compliance.Changes.RecordAttestation
+      change transition_state(:closed)
+    end
+
+    update :export do
+      description "Export a closed Case into the immutable Audit Report."
+      change transition_state(:exported)
+    end
   end
 
   multitenancy do
@@ -103,10 +171,12 @@ defmodule Bedrock.Compliance.Case do
       public? false
     end
 
-    attribute :status, :atom do
-      constraints one_of: [:open, :resolved, :dismissed]
-      default :open
-      allow_nil? false
+    # `:status` is the state-machine attribute, declared by the `state_machine`
+    # block above with the full set of lifecycle states as its constraint.
+
+    # Why an Auditor dismissed the Case. Persisted on `dismiss` and later feeds
+    # Suppression Rules (ADR-0010). Nil unless the Case was dismissed.
+    attribute :dismissal_reason, :string do
       public? true
     end
 
@@ -125,6 +195,7 @@ defmodule Bedrock.Compliance.Case do
     has_one :anomaly, Bedrock.Compliance.Anomaly
     has_one :hard_evidence, Bedrock.Compliance.HardEvidence
     has_one :ai_narrative, Bedrock.Compliance.AINarrative
+    has_one :attestation, Bedrock.Compliance.Attestation
   end
 
   # A Case is unique on its Episode identity (ADR-0011): the DB backstop behind the
